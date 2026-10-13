@@ -774,6 +774,81 @@ export function App() {
                 </p>
               </div>
             )}
+
+            {/* Gerenciador / Criação de Novos Flashcards */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-extrabold text-slate-900 text-sm">Criar Nova Carta de Revisão</h3>
+                <span className="text-xs text-slate-400 font-medium">{flashcards.length} cartas no deck</span>
+              </div>
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const form = e.currentTarget;
+                  const front = (form.elements.namedItem('front') as HTMLInputElement).value;
+                  const back = (form.elements.namedItem('back') as HTMLTextAreaElement).value;
+                  const subjectId = (form.elements.namedItem('subjectId') as HTMLSelectElement).value;
+
+                  if (!front || !back) return;
+
+                  await db.flashcards.add({
+                    id: `fc-${Date.now()}`,
+                    front,
+                    back,
+                    subjectId,
+                    easeFactor: 2.5,
+                    intervalDays: 1,
+                    repetitions: 0,
+                    nextReviewDate: formatDateToLocalYYYYMMDD(new Date()),
+                    reviewsCount: 0,
+                    archived: false,
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                  });
+
+                  form.reset();
+                  alert('Nova carta adicionada à arena!');
+                }}
+                className="space-y-3"
+              >
+                <div>
+                  <input
+                    name="front"
+                    placeholder="Pergunta ou conceito (Frente)"
+                    required
+                    className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
+                  />
+                </div>
+                <div>
+                  <textarea
+                    name="back"
+                    placeholder="Resposta explicada (Verso)"
+                    rows={2}
+                    required
+                    className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    name="subjectId"
+                    className="text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 flex-1 focus:outline-hidden"
+                  >
+                    {subjects.map((sub) => (
+                      <option key={sub.id} value={sub.id}>
+                        {sub.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="submit"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition active:scale-95"
+                  >
+                    + Adicionar Carta
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 
