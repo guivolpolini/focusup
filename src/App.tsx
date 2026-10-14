@@ -32,7 +32,7 @@ import {
   clearTimerState,
 } from './lib/timerEngine';
 import { calculateNextSRSReview, formatDateToLocalYYYYMMDD } from './lib/srsEngine';
-import { generateWeeklySchedule } from './lib/schedulerEngine';
+import { generateWeeklySchedule, type SchedulerOutput } from './lib/schedulerEngine';
 import { exportAllData, validateBackupString, restoreByReplacement } from './lib/backupEngine';
 import { calculateGamification } from './lib/gamification';
 import { generateWeeklyReviewAnalysis } from './lib/weeklyReviewEngine';
@@ -42,6 +42,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'tracks' | 'schedule' | 'progress' | 'flashcards' | 'career' | 'settings'>('home');
   const [now, setNow] = useState(Date.now());
   const [currentReview, setCurrentReview] = useState<WeeklyReview | null>(null);
+  const [currentSchedule, setCurrentSchedule] = useState<SchedulerOutput | null>(null);
 
   // Estado do Cronômetro
   const [timerState, setTimerState] = useState<ActiveTimerState>(() => {
@@ -1045,7 +1046,8 @@ export function App() {
                     pendingTasks: tasks.filter((t) => t.status === 'pending'),
                     dueFlashcards,
                   });
-                  alert(`Plano Estratégico Gerado! Total planejado: ${schedule.totalPlannedMinutes} minutos.`);
+                  setCurrentSchedule(schedule);
+                  triggerVictoryEffect();
                 }}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-xs font-black transition active:scale-95 shadow-xs"
               >
@@ -1053,8 +1055,9 @@ export function App() {
               </button>
             </header>
 
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
-              <h3 className="font-bold text-slate-900 mb-4 text-sm">Disponibilidade Semanal Configurada</h3>
+            {/* Disponibilidade Semanal */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+              <h3 className="font-bold text-slate-900 text-sm">Disponibilidade Semanal Configurada</h3>
               <div className="grid grid-cols-7 gap-2 text-center">
                 {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((day, idx) => {
                   const avail = preferences?.weeklyAvailability.find((a) => a.dayOfWeek === idx);
@@ -1067,6 +1070,98 @@ export function App() {
                 })}
               </div>
             </div>
+
+            {/* Detecção Transparente de Sobrecarga */}
+            {currentSchedule && currentSchedule.unallocatedTasks.length > 0 && (
+              <div className="bg-amber-50 p-6 rounded-3xl border border-amber-200 shadow-xs space-y-3">
+                <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
+                  <AlertTriangle className="w-5 h-5 text-amber-600" />
+                  Alerta de Sobrecarga: {currentSchedule.totalOverloadMinutes}m excedentes
+                </div>
+                <p className="text-xs text-amber-700">
+                  As seguintes tarefas não puderam ser alocadas nesta semana pois o tempo diário configurado atingiu o limite:
+                </p>
+                <div className="space-y-1.5 pt-1">
+                  {currentSchedule.unallocatedTasks.map((t) => (
+                    <div
+                      key={t.id}
+                      className="p-2.5 rounded-xl bg-white/80 border border-amber-200/80 text-xs text-amber-900 font-medium flex items-center justify-between"
+                    >
+                      <span>• {t.title}</span>
+                      <span className="font-bold text-amber-700">{t.estimatedMinutes || 30}m</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Distribuição Diária das Atividades Geradas */}
+            {currentSchedule && (
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-5">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h3 className="font-extrabold text-slate-900 text-base">Agenda de Estudos da Semana</h3>
+                    <p className="text-xs text-slate-400">Total alocado: {currentSchedule.totalPlannedMinutes} minutos</p>
+                  </div>
+                  <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
+                    {currentSchedule.plannedActivities.length} Atividades Programadas
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  {currentSchedule.dailyLoads.map((day) => {
+                    const dayActivities = currentSchedule.plannedActivities.filter((a) => a.date === day.date);
+                    const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+
+                    return (
+                      <div key={day.date} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-800">
+                            {dayNames[day.dayOfWeek]} ({day.date})
+                          </span>
+                          <span className="text-[11px] font-mono text-slate-500 font-bold">
+                            {day.allocatedMinutes}m / {day.capacityMinutes}m disponíveis
+                          </span>
+                        </div>
+
+                        {dayActivities.length > 0 ? (
+                          <div className="space-y-1.5">
+                            {dayActivities.map((act) => {
+                              const taskObj = tasks.find((t) => t.id === act.taskId);
+                              const subObj = subjects.find((s) => s.id === act.subjectId);
+
+                              return (
+                                <div
+                                  key={act.id}
+                                  className="p-2.5 rounded-xl bg-white border border-slate-200 text-xs flex items-center justify-between shadow-xs"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <div
+                                      className="w-2.5 h-2.5 rounded-full"
+                                      style={{ backgroundColor: subObj?.color || '#6366f1' }}
+                                    />
+                                    <span className="font-semibold text-slate-800">
+                                      {act.flashcardReview
+                                        ? 'Sessão de Revisão de Flashcards'
+                                        : taskObj?.title || 'Atividade de Estudo'}
+                                    </span>
+                                  </div>
+                                  <span className="font-mono text-[11px] text-indigo-600 font-bold">
+                                    {act.plannedMinutes}m
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-slate-400 italic">Nenhuma atividade alocada para este dia.</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
