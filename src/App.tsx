@@ -28,6 +28,7 @@ import {
   FileText,
   Bell,
   BellRing,
+  RotateCcw,
 } from 'lucide-react';
 
 import { db, seedInitialData } from './lib/db';
@@ -171,6 +172,16 @@ export function App() {
       status: 'running',
       pausedAt: undefined,
       accumulatedPausedMs: prev.accumulatedPausedMs + pauseDuration,
+    }));
+  };
+
+  const restartTimer = () => {
+    setTimerState((prev) => ({
+      ...prev,
+      status: 'running',
+      startedAt: Date.now(),
+      accumulatedPausedMs: 0,
+      pausedAt: undefined,
     }));
   };
 
@@ -898,23 +909,42 @@ export function App() {
               </div>
 
               {/* Botões de Ação */}
-              <div className="flex items-center justify-center gap-4">
+              <div className="flex flex-wrap items-center justify-center gap-3">
                 {timerState.status === 'idle' ? (
-                  <button
-                    onClick={() => startTimer(timerState.mode)}
-                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3.5 rounded-2xl font-black shadow-sm transition active:scale-95"
-                  >
-                    <Play className="w-5 h-5 fill-white" />
-                    Iniciar Missão
-                  </button>
+                  <>
+                    <button
+                      onClick={() => startTimer(timerState.mode, timerState.plannedMinutes)}
+                      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3.5 rounded-2xl font-black shadow-sm transition active:scale-95"
+                    >
+                      <Play className="w-5 h-5 fill-white" />
+                      Iniciar
+                    </button>
+                    <button
+                      onClick={restartTimer}
+                      className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-3.5 rounded-2xl font-bold transition active:scale-95"
+                      title="Recomeçar do início"
+                    >
+                      <RotateCcw className="w-4 h-4 text-indigo-600" />
+                      Recomeçar
+                    </button>
+                  </>
                 ) : timerState.status === 'running' ? (
                   <>
                     <button
                       onClick={pauseTimer}
-                      className="p-3.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
+                      className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-5 py-3.5 rounded-2xl font-bold transition active:scale-95"
                       title="Pausar"
                     >
                       <Pause className="w-5 h-5 fill-current" />
+                      Pausar
+                    </button>
+                    <button
+                      onClick={restartTimer}
+                      className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-5 py-3.5 rounded-2xl font-bold transition active:scale-95"
+                      title="Recomeçar do início"
+                    >
+                      <RotateCcw className="w-4 h-4 text-indigo-600" />
+                      Recomeçar
                     </button>
                     <button
                       onClick={finishSession}
@@ -925,7 +955,7 @@ export function App() {
                     </button>
                     <button
                       onClick={cancelSession}
-                      className="p-3.5 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-600 transition"
+                      className="p-3.5 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-600 transition active:scale-95"
                       title="Cancelar"
                     >
                       <Trash2 className="w-5 h-5" />
@@ -938,7 +968,15 @@ export function App() {
                       className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-2xl font-black shadow-sm transition active:scale-95"
                     >
                       <Play className="w-5 h-5 fill-white" />
-                      Retomar
+                      Iniciar
+                    </button>
+                    <button
+                      onClick={restartTimer}
+                      className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-5 py-3.5 rounded-2xl font-bold transition active:scale-95"
+                      title="Recomeçar do início"
+                    >
+                      <RotateCcw className="w-4 h-4 text-indigo-600" />
+                      Recomeçar
                     </button>
                     <button
                       onClick={finishSession}
@@ -946,6 +984,13 @@ export function App() {
                     >
                       <CheckCircle2 className="w-5 h-5" />
                       Concluir (+XP)
+                    </button>
+                    <button
+                      onClick={cancelSession}
+                      className="p-3.5 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-600 transition active:scale-95"
+                      title="Cancelar"
+                    >
+                      <Trash2 className="w-5 h-5" />
                     </button>
                   </>
                 )}
