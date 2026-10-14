@@ -202,6 +202,94 @@ export function calculateExercisePRs(workouts: GymWorkout[], exerciseId: string)
   };
 }
 
+export interface PreviousSetPerformance {
+  weightKg: number;
+  reps: number;
+  dateStr: string;
+}
+
+/**
+ * Encontra a carga e repetições da série do treino anterior para o mesmo exercício.
+ */
+export function getPreviousPerformanceForSet(
+  workouts: GymWorkout[],
+  exerciseId: string,
+  setIndex: number
+): PreviousSetPerformance | null {
+  const completed = workouts
+    .filter((w) => w.status === 'completed')
+    .sort((a, b) => b.startedAt - a.startedAt);
+
+  for (const w of completed) {
+    const exLog = w.exercises.find((e) => e.exerciseId === exerciseId);
+    if (!exLog) continue;
+
+    const validSets = exLog.sets.filter((s) => s.completed && s.reps > 0);
+    if (validSets.length === 0) continue;
+
+    const targetSet = validSets[setIndex] || validSets[validSets.length - 1];
+    return {
+      weightKg: targetSet.weightKg,
+      reps: targetSet.reps,
+      dateStr: formatDateToLocalYYYYMMDD(new Date(w.startedAt)),
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Emite bipe sonoro melódico via Web Audio API (sem dependência de arquivos externos)
+ */
+export function playGymRestSound(): void {
+  try {
+    if (typeof window === 'undefined') return;
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+
+    // Primeiro tom (Lá - 880 Hz)
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(880, now);
+    gain1.gain.setValueAtTime(0.15, now);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.15);
+
+    // Segundo tom mais agudo (Ré - 1174 Hz)
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(1174, now + 0.15);
+    gain2.gain.setValueAtTime(0.2, now + 0.15);
+    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(now + 0.15);
+    osc2.stop(now + 0.4);
+  } catch {
+    // Silencioso se áudio não permitido ou indisponível
+  }
+}
+
+/**
+ * Dispara vibração tátil no dispositivo móvel
+ */
+export function triggerGymVibration(pattern: number[] = [200, 100, 300]): void {
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(pattern);
+    }
+  } catch {
+    // Silencioso
+  }
+}
+
 /**
  * Calcula o tempo de descanso restante com base no timestamp de início e duração.
  * Resiliente a recarregamentos de página (100% determinístico).

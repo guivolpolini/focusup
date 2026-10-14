@@ -7,6 +7,7 @@ import {
   saveActiveWorkoutState,
   loadActiveWorkoutState,
   clearActiveWorkoutState,
+  getPreviousPerformanceForSet,
 } from '../lib/gymEngine';
 import type { GymWorkout, GymWorkoutExerciseLog, ActiveWorkoutState } from '../types';
 
@@ -170,5 +171,68 @@ describe('gymEngine', () => {
 
     clearActiveWorkoutState();
     expect(loadActiveWorkoutState()).toBeNull();
+  });
+
+  it('retrieves previous performance for exercise set accurately', () => {
+    const workouts: GymWorkout[] = [
+      {
+        id: 'w-old',
+        routineName: 'Treino A',
+        startedAt: 1000000,
+        durationMinutes: 45,
+        status: 'completed',
+        totalVolumeKg: 1000,
+        totalSetsCompleted: 2,
+        createdAt: 0,
+        updatedAt: 0,
+        exercises: [
+          {
+            exerciseId: 'ex-supino',
+            name: 'Supino',
+            muscleGroup: 'peito',
+            sets: [
+              { setNumber: 1, weightKg: 70, reps: 10, completed: true },
+              { setNumber: 2, weightKg: 75, reps: 8, completed: true },
+            ],
+          },
+        ],
+      },
+      {
+        id: 'w-recent',
+        routineName: 'Treino A',
+        startedAt: 2000000,
+        durationMinutes: 45,
+        status: 'completed',
+        totalVolumeKg: 1200,
+        totalSetsCompleted: 2,
+        createdAt: 0,
+        updatedAt: 0,
+        exercises: [
+          {
+            exerciseId: 'ex-supino',
+            name: 'Supino',
+            muscleGroup: 'peito',
+            sets: [
+              { setNumber: 1, weightKg: 72.5, reps: 10, completed: true },
+              { setNumber: 2, weightKg: 77.5, reps: 8, completed: true },
+            ],
+          },
+        ],
+      },
+    ];
+
+    // Deve puxar do treino mais recente (w-recent)
+    const prevSet1 = getPreviousPerformanceForSet(workouts, 'ex-supino', 0);
+    expect(prevSet1).toBeDefined();
+    expect(prevSet1?.weightKg).toBe(72.5);
+    expect(prevSet1?.reps).toBe(10);
+
+    const prevSet2 = getPreviousPerformanceForSet(workouts, 'ex-supino', 1);
+    expect(prevSet2).toBeDefined();
+    expect(prevSet2?.weightKg).toBe(77.5);
+    expect(prevSet2?.reps).toBe(8);
+
+    // Exercício inexistente
+    expect(getPreviousPerformanceForSet(workouts, 'ex-inexistente', 0)).toBeNull();
   });
 });

@@ -43,6 +43,9 @@ import {
   saveActiveWorkoutState,
   loadActiveWorkoutState,
   clearActiveWorkoutState,
+  getPreviousPerformanceForSet,
+  playGymRestSound,
+  triggerGymVibration,
 } from '../lib/gymEngine';
 import { sendLocalNotification } from '../lib/notificationEngine';
 import { formatDateToLocalYYYYMMDD } from '../lib/srsEngine';
@@ -166,6 +169,8 @@ export function GymSection({
       );
       if (remaining === 0 && notifiedTimerRef.current !== activeWorkout.currentRestTimer.startedAt) {
         notifiedTimerRef.current = activeWorkout.currentRestTimer.startedAt;
+        playGymRestSound();
+        triggerGymVibration([200, 100, 300]);
         sendLocalNotification('Descanso Finalizado! ⚡ FocusUp Academia', {
           body: `Hora da próxima série de ${activeWorkout.currentRestTimer.targetExerciseName || 'exercício'}!`,
           tag: 'gym-rest-done',
@@ -796,6 +801,17 @@ export function GymSection({
 
                       <div className="flex items-center gap-1.5">
                         <button
+                          type="button"
+                          onClick={() => {
+                            playGymRestSound();
+                            triggerGymVibration([150, 80, 200]);
+                          }}
+                          className="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold text-white/90 flex items-center gap-1 transition"
+                          title="Testar bipe sonoro e vibração"
+                        >
+                          🔊 Bipe Ativo
+                        </button>
+                        <button
                           onClick={() => {
                             if (!activeWorkout.currentRestTimer) return;
                             setActiveWorkout({
@@ -905,79 +921,118 @@ export function GymSection({
                         <div className="col-span-3">Status</div>
                       </div>
 
-                      {ex.sets.map((set, setIdx) => (
-                        <div
-                          key={set.setNumber || setIdx}
-                          className={`grid grid-cols-12 gap-2 items-center p-2 rounded-2xl transition border ${
-                            set.completed
-                              ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
-                              : 'bg-slate-50 border-slate-100 text-slate-800'
-                          }`}
-                        >
-                          <div className="col-span-2 font-mono font-black text-center text-xs">
-                            #{set.setNumber}
-                          </div>
-                          <div className="col-span-4">
-                            <input
-                              type="number"
-                              min={0}
-                              step={0.5}
-                              value={set.weightKg}
-                              onChange={(e) => {
-                                const newExercises = [...activeWorkout.exercises];
-                                newExercises[exIdx].sets[setIdx].weightKg = Number(e.target.value) || 0;
-                                setActiveWorkout({ ...activeWorkout, exercises: newExercises });
-                              }}
-                              className="w-full text-center p-1.5 bg-white rounded-xl border border-slate-200 font-mono font-bold text-xs focus:outline-hidden"
-                            />
-                          </div>
-                          <div className="col-span-3">
-                            <input
-                              type="number"
-                              min={1}
-                              value={set.reps}
-                              onChange={(e) => {
-                                const newExercises = [...activeWorkout.exercises];
-                                newExercises[exIdx].sets[setIdx].reps = Number(e.target.value) || 0;
-                                setActiveWorkout({ ...activeWorkout, exercises: newExercises });
-                              }}
-                              className="w-full text-center p-1.5 bg-white rounded-xl border border-slate-200 font-mono font-bold text-xs focus:outline-hidden"
-                            />
-                          </div>
-                          <div className="col-span-3 flex justify-center">
-                            <button
-                              onClick={() => {
-                                const newExercises = [...activeWorkout.exercises];
-                                const isNowCompleted = !set.completed;
-                                newExercises[exIdx].sets[setIdx].completed = isNowCompleted;
+                      {ex.sets.map((set, setIdx) => {
+                        const prevSet = getPreviousPerformanceForSet(workouts, ex.exerciseId, setIdx);
 
-                                // Se concluiu série, iniciar cronômetro de descanso automaticamente
-                                let restTimer = activeWorkout.currentRestTimer;
-                                if (isNowCompleted) {
-                                  restTimer = {
-                                    startedAt: Date.now(),
-                                    durationSeconds: set.restSeconds || 90,
-                                    targetExerciseName: ex.name,
-                                  };
-                                }
-
-                                setActiveWorkout({
-                                  ...activeWorkout,
-                                  exercises: newExercises,
-                                  currentRestTimer: restTimer,
-                                });
-                              }}
-                              className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs transition shadow-2xs ${
+                        return (
+                          <div key={set.setNumber || setIdx} className="space-y-1">
+                            <div
+                              className={`grid grid-cols-12 gap-2 items-center p-2 rounded-2xl transition border ${
                                 set.completed
-                                  ? 'bg-emerald-600 text-white'
-                                  : 'bg-white border border-slate-300 text-slate-400 hover:border-emerald-500'
+                                  ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
+                                  : 'bg-slate-50 border-slate-100 text-slate-800'
                               }`}
                             >
-                              {set.completed ? <CheckCircle2 className="w-5 h-5 stroke-[2.5]" /> : 'OK'}
-                            </button>
+                              <div className="col-span-2 font-mono font-black text-center text-xs">
+                                #{set.setNumber}
+                              </div>
+                              <div className="col-span-4">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.5}
+                                  value={set.weightKg}
+                                  onChange={(e) => {
+                                    const newExercises = [...activeWorkout.exercises];
+                                    newExercises[exIdx].sets[setIdx].weightKg = Number(e.target.value) || 0;
+                                    setActiveWorkout({ ...activeWorkout, exercises: newExercises });
+                                  }}
+                                  className="w-full text-center p-1.5 bg-white rounded-xl border border-slate-200 font-mono font-bold text-xs focus:outline-hidden"
+                                />
+                              </div>
+                              <div className="col-span-3">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={set.reps}
+                                  onChange={(e) => {
+                                    const newExercises = [...activeWorkout.exercises];
+                                    newExercises[exIdx].sets[setIdx].reps = Number(e.target.value) || 0;
+                                    setActiveWorkout({ ...activeWorkout, exercises: newExercises });
+                                  }}
+                                  className="w-full text-center p-1.5 bg-white rounded-xl border border-slate-200 font-mono font-bold text-xs focus:outline-hidden"
+                                />
+                              </div>
+                              <div className="col-span-3 flex justify-center">
+                                <button
+                                  onClick={() => {
+                                    const newExercises = [...activeWorkout.exercises];
+                                    const isNowCompleted = !set.completed;
+                                    newExercises[exIdx].sets[setIdx].completed = isNowCompleted;
+
+                                    // Se concluiu série, iniciar cronômetro de descanso automaticamente
+                                    let restTimer = activeWorkout.currentRestTimer;
+                                    if (isNowCompleted) {
+                                      restTimer = {
+                                        startedAt: Date.now(),
+                                        durationSeconds: set.restSeconds || 90,
+                                        targetExerciseName: ex.name,
+                                      };
+                                    }
+
+                                    setActiveWorkout({
+                                      ...activeWorkout,
+                                      exercises: newExercises,
+                                      currentRestTimer: restTimer,
+                                    });
+                                  }}
+                                  className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs transition shadow-2xs ${
+                                    set.completed
+                                      ? 'bg-emerald-600 text-white'
+                                      : 'bg-white border border-slate-300 text-slate-400 hover:border-emerald-500'
+                                  }`}
+                                >
+                                  {set.completed ? <CheckCircle2 className="w-5 h-5 stroke-[2.5]" /> : 'OK'}
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Referência da Sessão Anterior & Sobrecarga Progressiva */}
+                            <div className="flex items-center justify-between px-2 text-[10px] text-slate-400">
+                              {prevSet ? (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span>Último treino ({prevSet.dateStr}):</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newExercises = [...activeWorkout.exercises];
+                                      newExercises[exIdx].sets[setIdx].weightKg = prevSet.weightKg;
+                                      newExercises[exIdx].sets[setIdx].reps = prevSet.reps;
+                                      setActiveWorkout({ ...activeWorkout, exercises: newExercises });
+                                    }}
+                                    className="font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/80 px-1.5 py-0.5 rounded transition font-mono"
+                                    title="Clique para preencher com a carga do treino anterior"
+                                  >
+                                    {prevSet.weightKg} kg × {prevSet.reps} reps
+                                  </button>
+                                  {set.completed && set.weightKg > prevSet.weightKg && (
+                                    <span className="font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800">
+                                      +{(set.weightKg - prevSet.weightKg).toFixed(1)}kg 🚀
+                                    </span>
+                                  )}
+                                  {set.completed && set.weightKg === prevSet.weightKg && set.reps > prevSet.reps && (
+                                    <span className="font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800">
+                                      +{set.reps - prevSet.reps} reps 🔥
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="italic text-slate-300">Primeiro registro desta série</span>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
