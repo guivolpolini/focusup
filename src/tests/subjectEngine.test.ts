@@ -12,6 +12,11 @@ describe('subjectEngine - Deduplicação e Saneamento de Disciplinas', () => {
     expect(normalizeSubjectName('Cálculo II')).toBe('calculo ii');
     expect(normalizeSubjectName('  calculo   ii  ')).toBe('calculo ii');
     expect(normalizeSubjectName('Engenharia de Software')).toBe('engenharia de software');
+    expect(normalizeSubjectName('TTI205 - Engenharia de Software')).toBe('engenharia de software');
+    expect(normalizeSubjectName('CIC205 Álgebra Linear e Geometria Analítica SUB1')).toBe(
+      'algebra linear e geometria analitica'
+    );
+    expect(normalizeSubjectName('Engenharia de Software (Faculdade)')).toBe('engenharia de software');
     expect(normalizeSubjectName('ÁLGEBRA LINEAR E GEOMETRIA ANALÍTICA')).toBe(
       'algebra linear e geometria analitica'
     );

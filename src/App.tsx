@@ -68,6 +68,7 @@ import { calculateGamification } from './lib/gamification';
 import { generateWeeklyReviewAnalysis } from './lib/weeklyReviewEngine';
 import { parseStudyDocument, getMauaDefaultData, type ParsedDocumentResult } from './lib/documentParser';
 import {
+  normalizeSubjectName,
   deduplicateSubjectsList,
   cleanAndDeduplicateDatabaseSubjects,
   remapImportedSubjectsWithExisting,
@@ -114,6 +115,7 @@ export function App() {
 
   // Consultas Reativas ao Dexie
   const subjects = useLiveQuery(() => db.subjects.filter((s) => !s.archived).toArray()) || [];
+  const uniqueSubjects = useMemo(() => deduplicateSubjectsList(subjects), [subjects]);
   const tasks = useLiveQuery(() => db.tasks.toArray()) || [];
   const flashcards = useLiveQuery(() => db.flashcards.filter((f) => !f.archived).toArray()) || [];
   const learningPaths = useLiveQuery(() => db.learningPaths.filter((lp) => !lp.archived).toArray()) || [];
@@ -816,7 +818,27 @@ export function App() {
                 <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
                   <Swords className="w-5 h-5 text-amber-500" /> Árvore de Matérias
                 </h3>
-                <span className="text-xs text-slate-400 font-medium">{subjects.length} matérias ativas</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400 font-medium">
+                    {uniqueSubjects.length} matérias ativas
+                  </span>
+                  {subjects.length > uniqueSubjects.length && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const res = await cleanAndDeduplicateDatabaseSubjects();
+                        if (res.mergedCount > 0) {
+                          triggerVictoryEffect();
+                          alert(`${res.mergedCount} matéria(s) duplicada(s) foram unificadas no banco!`);
+                        }
+                      }}
+                      className="text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200 transition"
+                      title="Unificar matérias repetidas"
+                    >
+                      Unificar {subjects.length - uniqueSubjects.length} Duplicadas
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Formulário Rápido de Nova Matéria */}
@@ -829,6 +851,13 @@ export function App() {
                   const targetMinutes = Number((form.elements.namedItem('subTarget') as HTMLInputElement).value) || 120;
 
                   if (!name) return;
+
+                  const norm = normalizeSubjectName(name);
+                  const alreadyExists = subjects.some((s) => normalizeSubjectName(s.name) === norm);
+                  if (alreadyExists) {
+                    alert(`A matéria "${name}" já está cadastrada!`);
+                    return;
+                  }
 
                   await db.subjects.add({
                     id: `sub-${Date.now()}`,
@@ -877,7 +906,7 @@ export function App() {
               </form>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {subjects.map((sub) => (
+                {uniqueSubjects.map((sub) => (
                   <div
                     key={sub.id}
                     className="p-4 rounded-2xl border border-slate-100 bg-slate-50/70 hover:bg-slate-50 transition flex items-center justify-between"
@@ -903,7 +932,11 @@ export function App() {
                       <button
                         onClick={async () => {
                           if (confirm(`Deseja remover a matéria "${sub.name}"?`)) {
-                            await db.subjects.delete(sub.id);
+                            const norm = normalizeSubjectName(sub.name);
+                            const toDelete = subjects.filter((s) => normalizeSubjectName(s.name) === norm);
+                            for (const d of toDelete) {
+                              await db.subjects.delete(d.id);
+                            }
                           }
                         }}
                         className="text-slate-300 hover:text-rose-500 p-1 transition"
@@ -963,7 +996,7 @@ export function App() {
                   name="taskSubjectId"
                   className="text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:outline-hidden"
                 >
-                  {subjects.map((s) => (
+                  {uniqueSubjects.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
                     </option>
@@ -1336,7 +1369,7 @@ export function App() {
                     name="subjectId"
                     className="text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 flex-1 focus:outline-hidden"
                   >
-                    {subjects.map((sub) => (
+                    {uniqueSubjects.map((sub) => (
                       <option key={sub.id} value={sub.id}>
                         {sub.name}
                       </option>

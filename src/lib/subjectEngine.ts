@@ -3,7 +3,12 @@ import type { Subject, CollegeClassSchedule, Task, LearningPath } from '../types
 import type { ParsedDocumentResult } from './documentParser';
 
 /**
- * Normaliza o nome da matéria para comparação e deduplicação (insensível a maiúsculas e espaços extras)
+ * Normaliza o nome da matéria para comparação e deduplicação inteligente:
+ * - Insensível a maiúsculas/minúsculas e acentos
+ * - Remove prefixos de código (ex: "TTI205 - ", "CIC205 ")
+ * - Remove sufixos de turma/subturma (ex: " SUB1", " SUB 2", " Turma A", " (Faculdade)")
+ * - Remove prefixos de trilhas (ex: "Trilha: ")
+ * - Remove pontuações e espaços extras
  */
 export function normalizeSubjectName(name: string): string {
   if (!name) return '';
@@ -11,8 +16,28 @@ export function normalizeSubjectName(name: string): string {
     .trim()
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // remove acentos para bater variações como Cálculo vs Calculo
-    .replace(/\s+/g, ' ');
+    .replace(/[\u0300-\u036f]/g, '') // remove acentos
+    .replace(/^trilha:\s*/i, '') // remove "trilha: "
+    .replace(/^[a-z]{2,5}\s*\d{3,5}\s*[-–:]?\s*/i, '') // remove códigos de disciplina no início
+    .replace(/\s*[-–:]?\s*(?:sub\s*\d+|turma\s*[a-z0-9]+|t\d+)$/i, '') // remove subturmas no final
+    .replace(/\s*\((?:faculdade|universidade|maua|graduacao|teorica|pratica)\)$/i, '') // remove anotações entre parênteses
+    .replace(/[^\w\s]/g, ' ') // remove pontuações
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Seleciona o nome mais limpo e amigável para exibição visual
+ */
+export function getCleanestDisplayName(names: string[]): string {
+  if (names.length === 0) return '';
+  const filtered = names.filter(
+    (n) => !/^[a-z]{2,5}\s*\d{3,5}/i.test(n) && !/\bsub\s*\d|\bturma\b/i.test(n)
+  );
+  if (filtered.length > 0) {
+    return filtered.sort((a, b) => a.length - b.length)[0];
+  }
+  return names[0];
 }
 
 /**
@@ -25,6 +50,7 @@ export function deduplicateSubjectsList(subjects: Subject[]): Subject[] {
   for (const sub of subjects) {
     if (!sub || !sub.name) continue;
     const key = normalizeSubjectName(sub.name);
+    if (!key) continue;
     const existing = map.get(key);
 
     if (!existing) {
@@ -36,14 +62,19 @@ export function deduplicateSubjectsList(subjects: Subject[]): Subject[] {
         (Boolean(sub.deadline) && !existing.deadline) ||
         (sub.id.startsWith('sub-cic') || sub.id.startsWith('sub-tti'));
 
-      if (isCurrentBetter) {
-        map.set(key, {
-          ...existing,
-          ...sub,
-          // Preservar ID estável se já havia um
-          id: existing.id.startsWith('col-') || existing.id.startsWith('sub-') ? existing.id : sub.id,
-        });
-      }
+      const bestName = getCleanestDisplayName([existing.name, sub.name]);
+
+      map.set(key, {
+        ...(isCurrentBetter ? sub : existing),
+        name: bestName || (isCurrentBetter ? sub.name : existing.name),
+        id: existing.id.startsWith('sub-cic') || existing.id.startsWith('sub-tti')
+          ? existing.id
+          : isCurrentBetter
+          ? sub.id
+          : existing.id,
+        category: sub.category === 'college' || existing.category === 'college' ? 'college' : existing.category,
+        deadline: sub.deadline || existing.deadline,
+      });
     }
   }
 
@@ -142,7 +173,9 @@ export async function cleanAndDeduplicateDatabaseSubjects(): Promise<{
   const groups = new Map<string, Subject[]>();
 
   for (const s of allSubjects) {
+    if (!s || !s.name) continue;
     const key = normalizeSubjectName(s.name);
+    if (!key) continue;
     if (!groups.has(key)) {
       groups.set(key, []);
     }
@@ -166,8 +199,10 @@ export async function cleanAndDeduplicateDatabaseSubjects(): Promise<{
     // Assegurar que o canônico tenha category='college' se qualquer um do grupo era da faculdade
     const hasCollege = list.some((s) => s.category === 'college');
     const bestDeadline = list.find((s) => Boolean(s.deadline))?.deadline;
+    const cleanestName = getCleanestDisplayName(list.map((s) => s.name)) || canonical.name;
 
     await db.subjects.update(canonical.id, {
+      name: cleanestName,
       category: hasCollege ? 'college' : canonical.category,
       deadline: canonical.deadline || bestDeadline,
       updatedAt: Date.now(),
@@ -178,34 +213,19 @@ export async function cleanAndDeduplicateDatabaseSubjects(): Promise<{
       if (dup.id === canonical.id) continue;
 
       // 1. Aulas da grade horária
-      const classes = await db.collegeClasses.where('subjectId').equals(dup.id).toArray();
-      for (const c of classes) {
-        await db.collegeClasses.update(c.id, { subjectId: canonical.id, updatedAt: Date.now() });
-      }
+      await db.collegeClasses.where('subjectId').equals(dup.id).modify({ subjectId: canonical.id, updatedAt: Date.now() });
 
       // 2. Tarefas e missões
-      const tasks = await db.tasks.where('subjectId').equals(dup.id).toArray();
-      for (const t of tasks) {
-        await db.tasks.update(t.id, { subjectId: canonical.id, updatedAt: Date.now() });
-      }
+      await db.tasks.where('subjectId').equals(dup.id).modify({ subjectId: canonical.id, updatedAt: Date.now() });
 
       // 3. Sessões de estudo
-      const sessions = await db.studySessions.where('subjectId').equals(dup.id).toArray();
-      for (const ses of sessions) {
-        await db.studySessions.update(ses.id, { subjectId: canonical.id, updatedAt: Date.now() });
-      }
+      await db.studySessions.where('subjectId').equals(dup.id).modify({ subjectId: canonical.id, updatedAt: Date.now() });
 
       // 4. Flashcards
-      const cards = await db.flashcards.where('subjectId').equals(dup.id).toArray();
-      for (const f of cards) {
-        await db.flashcards.update(f.id, { subjectId: canonical.id, updatedAt: Date.now() });
-      }
+      await db.flashcards.where('subjectId').equals(dup.id).modify({ subjectId: canonical.id, updatedAt: Date.now() });
 
       // 5. Trilhas de estudo
-      const tracks = await db.learningPaths.where('subjectId').equals(dup.id).toArray();
-      for (const tr of tracks) {
-        await db.learningPaths.update(tr.id, { subjectId: canonical.id, updatedAt: Date.now() });
-      }
+      await db.learningPaths.where('subjectId').equals(dup.id).modify({ subjectId: canonical.id, updatedAt: Date.now() });
 
       // 6. Configurações de notas
       const dupGrade = await db.subjectGrades.where('subjectId').equals(dup.id).first();
