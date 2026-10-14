@@ -678,3 +678,105 @@ function parseTextLines(content: string, filename: string): ParsedDocumentResult
     summary: `Documento processado (${filename}): ${createdSubjects.length} matéria(s), ${createdTasks.length} prazo(s) e ${createdTracks.length} trilha(s) identificada(s).`,
   };
 }
+
+/**
+ * Retorna os dados completos da grade acadêmica do Instituto Mauá de Tecnologia
+ * (Guilherme Murbach Volpolini - Ciência da Computação - Período Letivo 2026)
+ */
+export function getMauaDefaultData(): {
+  subjects: Subject[];
+  classes: CollegeClassSchedule[];
+  tracks: LearningPath[];
+} {
+  const now = Date.now();
+  const subjects: Subject[] = [
+    {
+      id: 'sub-cic205',
+      name: 'Álgebra Linear e Geometria Analítica',
+      color: '#4f46e5',
+      priority: 'high',
+      category: 'college',
+      targetMinutesPerWeek: 180,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'sub-tti205',
+      name: 'Engenharia de Software',
+      color: '#06b6d4',
+      priority: 'high',
+      category: 'college',
+      targetMinutesPerWeek: 180,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'sub-tti2001',
+      name: 'Lógica Matemática e Matemática Discreta',
+      color: '#10b981',
+      priority: 'high',
+      category: 'college',
+      targetMinutesPerWeek: 180,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'sub-tti204',
+      name: 'Banco de Dados Não Relacionais e Big Data',
+      color: '#f59e0b',
+      priority: 'high',
+      category: 'college',
+      targetMinutesPerWeek: 180,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'sub-cic206',
+      name: 'Teoria da Computação, Autômatos e Linguagens Formais',
+      color: '#ec4899',
+      priority: 'high',
+      category: 'college',
+      targetMinutesPerWeek: 180,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+
+  const classes: CollegeClassSchedule[] = [
+    // Segunda-feira (1)
+    { id: 'maua-1-1', subjectId: 'sub-cic205', dayOfWeek: 1, startTime: '07:40', endTime: '09:20', room: 'Sala H.102', professor: 'Mariana Pojar', notes: 'CIC205', createdAt: now, updatedAt: now },
+    { id: 'maua-1-2', subjectId: 'sub-tti205', dayOfWeek: 1, startTime: '09:30', endTime: '11:10', room: 'Sala U.28', professor: 'Isaac Jesus da Silva', notes: 'TTI205 SUB2', createdAt: now, updatedAt: now },
+    { id: 'maua-1-3', subjectId: 'sub-tti2001', dayOfWeek: 1, startTime: '11:20', endTime: '13:00', room: 'Sala H.103', professor: 'Maria Luisa Mancini', notes: 'TTI2001', createdAt: now, updatedAt: now },
+    // Terça-feira (2)
+    { id: 'maua-2-1', subjectId: 'sub-tti2001', dayOfWeek: 2, startTime: '07:40', endTime: '09:20', room: 'Sala U.23', professor: 'Maria Luisa Mancini', notes: 'TTI2001 SUB2', createdAt: now, updatedAt: now },
+    { id: 'maua-2-2', subjectId: 'sub-tti204', dayOfWeek: 2, startTime: '09:30', endTime: '11:10', room: 'Sala U.26', professor: 'Marco Aurelio Mazzei', notes: 'TTI204 SUB2', createdAt: now, updatedAt: now },
+    // Quarta-feira (3)
+    { id: 'maua-3-1', subjectId: 'sub-tti205', dayOfWeek: 3, startTime: '07:40', endTime: '09:20', room: 'Sala REMOTO', professor: 'Robson Calvetti', notes: 'TTI205', createdAt: now, updatedAt: now },
+    { id: 'maua-3-2', subjectId: 'sub-cic206', dayOfWeek: 3, startTime: '11:20', endTime: '13:00', room: 'Sala REMOTO', professor: 'Marco Antonio Furlan de Souza', notes: 'CIC206', createdAt: now, updatedAt: now },
+    // Quinta-feira (4)
+    { id: 'maua-4-1', subjectId: 'sub-cic205', dayOfWeek: 4, startTime: '07:40', endTime: '09:20', room: 'Sala H.205', professor: 'Mariana Pojar', notes: 'CIC205 SUB1', createdAt: now, updatedAt: now },
+    { id: 'maua-4-2', subjectId: 'sub-cic206', dayOfWeek: 4, startTime: '09:30', endTime: '11:10', room: 'Sala H.206', professor: 'Marco Antonio Furlan de Souza', notes: 'CIC206 SUB1', createdAt: now, updatedAt: now },
+    { id: 'maua-4-3', subjectId: 'sub-tti204', dayOfWeek: 4, startTime: '11:20', endTime: '13:00', room: 'Sala U.25', professor: 'Leonardo Anjoletto Ferreira', notes: 'TTI204', createdAt: now, updatedAt: now },
+  ];
+
+  const tracks: LearningPath[] = subjects.map((s) => ({
+    id: `track-${s.id}`,
+    title: `Trilha: ${s.name}`,
+    description: `Conteúdo programático semestral de ${s.name}`,
+    category: 'Acadêmico',
+    level: 'intermediate',
+    subjectId: s.id,
+    modules: [{ id: 'mod-1', title: 'Conteúdo Semestral', items: [] }],
+    archived: false,
+    createdAt: now,
+    updatedAt: now,
+  }));
+
+  return { subjects, classes, tracks };
+}
+

@@ -56,7 +56,7 @@ import {
 } from './lib/backupEngine';
 import { calculateGamification } from './lib/gamification';
 import { generateWeeklyReviewAnalysis } from './lib/weeklyReviewEngine';
-import { parseStudyDocument, type ParsedDocumentResult } from './lib/documentParser';
+import { parseStudyDocument, getMauaDefaultData, type ParsedDocumentResult } from './lib/documentParser';
 import { extractTextFromPDF } from './lib/pdfParser';
 import { extractTextFromImage } from './lib/ocrParser';
 import { parseWithFreeLLM } from './lib/freellmClient';
@@ -258,6 +258,22 @@ export function App() {
       });
     } catch {
       // Ignorar caso bloqueado
+    }
+  };
+
+  const handleLoadMauaData = async () => {
+    try {
+      const data = getMauaDefaultData();
+      await db.subjects.bulkPut(data.subjects);
+      const gradeConfigs = data.subjects.map((s) => createDefaultGradeConfig(s.id, 6.0));
+      await db.subjectGrades.bulkPut(gradeConfigs);
+      await db.collegeClasses.bulkPut(data.classes);
+      await db.learningPaths.bulkPut(data.tracks);
+      triggerVictoryEffect();
+      setCollegeSubTab('timetable');
+    } catch (err: any) {
+      console.error('Falha ao sincronizar dados da Mauá:', err);
+      alert(`Erro ao sincronizar dados: ${err.message || err}`);
     }
   };
 
@@ -1613,12 +1629,21 @@ export function App() {
                         })}
                     </div>
                   ) : (
-                    <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-3">
+                    <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-4">
                       <GraduationCap className="w-12 h-12 text-indigo-400 mx-auto" />
-                      <h4 className="font-extrabold text-slate-900 text-base">Nenhuma disciplina cadastrada</h4>
-                      <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                        Adicione suas matérias da faculdade no formulário acima para acompanhar provas, prazos e simular notas.
-                      </p>
+                      <div>
+                        <h4 className="font-extrabold text-slate-900 text-base">Nenhuma disciplina cadastrada</h4>
+                        <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
+                          Adicione suas matérias no formulário acima ou sincronize instantaneamente suas 5 matérias da Mauá.
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleLoadMauaData}
+                        className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-extrabold text-xs px-5 py-2.5 rounded-2xl shadow-sm hover:shadow transition active:scale-95"
+                      >
+                        <Sparkles className="w-4 h-4 text-amber-300" />
+                        ⚡ Carregar Grade Completa da Mauá (5 Matérias)
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1888,12 +1913,27 @@ export function App() {
                         })}
                     </div>
                   ) : (
-                    <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-2">
+                    <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-4">
                       <Clock className="w-10 h-10 text-indigo-300 mx-auto" />
-                      <h4 className="font-bold text-slate-800 text-sm">Sem aulas cadastradas neste dia</h4>
-                      <p className="text-xs text-slate-400">
-                        Clique em "+ Adicionar Aula" acima para preencher sua grade deste dia.
-                      </p>
+                      <div>
+                        <h4 className="font-bold text-slate-800 text-sm">
+                          {collegeClasses.length === 0
+                            ? 'Nenhuma aula cadastrada na sua grade'
+                            : 'Sem aulas cadastradas neste dia'}
+                        </h4>
+                        <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
+                          {collegeClasses.length === 0
+                            ? 'Sincronize instantaneamente sua grade de horários da Mauá ou adicione aulas manualmente.'
+                            : 'Clique em "+ Adicionar Aula" acima para preencher sua grade deste dia.'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleLoadMauaData}
+                        className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-extrabold text-xs px-5 py-2.5 rounded-2xl shadow-sm hover:shadow transition active:scale-95"
+                      >
+                        <Sparkles className="w-4 h-4 text-amber-300" />
+                        ⚡ Carregar Grade Completa da Mauá (10 Aulas)
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1935,6 +1975,27 @@ export function App() {
                     </span>
                   </div>
 
+                  {/* Atalho Rápido Mauá 1-Click */}
+                  <div className="flex items-center justify-between p-4 bg-gradient-to-r from-indigo-600 to-indigo-700 rounded-2xl text-white shadow-xs flex-wrap gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-white/10 rounded-xl">
+                        <Sparkles className="w-5 h-5 text-amber-300" />
+                      </div>
+                      <div>
+                        <div className="font-extrabold text-xs">Instituto Mauá de Tecnologia (IMT)</div>
+                        <div className="text-[11px] text-indigo-200">
+                          Sincronizar as 5 matérias, 10 aulas da grade semanal e salas com 1 clique
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleLoadMauaData}
+                      className="px-4 py-2 bg-white text-indigo-700 hover:bg-indigo-50 font-black text-xs rounded-xl shadow-xs transition active:scale-95 shrink-0"
+                    >
+                      ⚡ Sincronizar Grade Mauá
+                    </button>
+                  </div>
+
                   {/* Estado de Processamento Ativo */}
                   {isImporting && (
                     <div className="flex items-center gap-3 p-4 bg-indigo-50 rounded-2xl border border-indigo-200 text-indigo-900 text-xs">
@@ -1971,6 +2032,7 @@ export function App() {
                         className="hidden"
                         onChange={async (e) => {
                           const file = e.target.files?.[0];
+                          e.target.value = '';
                           if (!file) return;
 
                           setIsImporting(true);
