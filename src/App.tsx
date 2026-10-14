@@ -38,8 +38,10 @@ import {
   CalendarDays,
   Loader2,
   Sparkles,
+  Dumbbell,
 } from 'lucide-react';
 
+import { GymSection } from './components/GymSection';
 import { db, seedInitialData } from './lib/db';
 import {
   type ActiveTimerState,
@@ -80,7 +82,7 @@ import type {
 } from './types';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'tracks' | 'college' | 'schedule' | 'progress' | 'flashcards' | 'career' | 'settings'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'tracks' | 'college' | 'gym' | 'schedule' | 'progress' | 'flashcards' | 'career' | 'settings'>('home');
   const [now, setNow] = useState(Date.now());
   const [currentReview, setCurrentReview] = useState<WeeklyReview | null>(null);
   const [currentSchedule, setCurrentSchedule] = useState<SchedulerOutput | null>(null);
@@ -108,6 +110,13 @@ export function App() {
   const projects = useLiveQuery(() => db.portfolioProjects.toArray()) || [];
   const collegeClasses = useLiveQuery(() => db.collegeClasses.toArray()) || [];
   const subjectGrades = useLiveQuery(() => db.subjectGrades.toArray()) || [];
+
+  // Consultas Reativas da Seção Academia
+  const gymExercises = useLiveQuery(() => db.gymExercises.toArray()) || [];
+  const gymRoutines = useLiveQuery(() => db.gymRoutines.toArray()) || [];
+  const gymWorkouts = useLiveQuery(() => db.gymWorkouts.toArray()) || [];
+  const gymMeasurements = useLiveQuery(() => db.gymMeasurements.toArray()) || [];
+  const gymPreferences = useLiveQuery(() => db.gymPreferences.get('gym_preferences'));
 
   // Sub-abas e modais do Portal da Faculdade
   const [collegeSubTab, setCollegeSubTab] = useState<'disciplines' | 'timetable' | 'import'>('disciplines');
@@ -500,6 +509,17 @@ export function App() {
           >
             <GraduationCap className="w-5 h-5 text-indigo-500" />
             Faculdade
+          </button>
+          <button
+            onClick={() => setActiveTab('gym')}
+            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
+              activeTab === 'gym'
+                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <Dumbbell className="w-5 h-5 text-amber-500" />
+            Academia
           </button>
           <button
             onClick={() => setActiveTab('flashcards')}
@@ -2614,6 +2634,17 @@ export function App() {
           </div>
         )}
 
+        {/* TAB: ACADEMIA & HIPERTROFIA */}
+        {activeTab === 'gym' && (
+          <GymSection
+            exercises={gymExercises}
+            routines={gymRoutines}
+            workouts={gymWorkouts}
+            measurements={gymMeasurements}
+            preferences={gymPreferences}
+          />
+        )}
+
         {/* TAB: ESTRATÉGIA SEMANAL */}
         {activeTab === 'schedule' && (
           <div className="space-y-6">
@@ -2647,10 +2678,20 @@ export function App() {
               <div className="grid grid-cols-7 gap-2 text-center">
                 {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((day, idx) => {
                   const avail = preferences?.weeklyAvailability.find((a) => a.dayOfWeek === idx);
+                  const gymRoutineId = gymPreferences?.plannedRoutineMap?.[idx];
+                  const plannedRoutine = gymRoutines.find((r) => r.id === gymRoutineId);
+
                   return (
-                    <div key={day} className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                      <div className="text-[10px] font-bold text-slate-400">{day}</div>
-                      <div className="text-sm font-black text-slate-900 mt-1">{avail?.minutesAvailable || 0}m</div>
+                    <div key={day} className="p-3 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col justify-between">
+                      <div>
+                        <div className="text-[10px] font-bold text-slate-400">{day}</div>
+                        <div className="text-sm font-black text-slate-900 mt-1">{avail?.minutesAvailable || 0}m foco</div>
+                      </div>
+                      {plannedRoutine && (
+                        <div className="mt-2 text-[9px] font-black text-amber-700 bg-amber-50 px-1 py-0.5 rounded-md border border-amber-200 truncate" title={`Treino: ${plannedRoutine.name}`}>
+                          🏋️ {plannedRoutine.name.split('—')[0].trim()}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -3300,6 +3341,15 @@ export function App() {
         >
           <GraduationCap className="w-5 h-5" />
           Facul
+        </button>
+        <button
+          onClick={() => setActiveTab('gym')}
+          className={`flex flex-col items-center gap-1 p-1 text-[10px] font-bold ${
+            activeTab === 'gym' ? 'text-amber-500 font-black' : 'text-slate-400'
+          }`}
+        >
+          <Dumbbell className="w-5 h-5" />
+          Treino
         </button>
         <button
           onClick={() => setActiveTab('flashcards')}

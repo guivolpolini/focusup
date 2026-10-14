@@ -213,3 +213,129 @@ export interface CollegeClassSchedule {
   updatedAt: number;
 }
 
+export type MuscleGroup =
+  | 'peito'
+  | 'costas'
+  | 'ombros'
+  | 'biceps'
+  | 'triceps'
+  | 'pernas'
+  | 'quadriceps'
+  | 'posterior'
+  | 'gluteos'
+  | 'panturrilha'
+  | 'abdomen'
+  | 'cardio'
+  | 'outro';
+
+export interface GymExercise {
+  id: string;
+  name: string;
+  muscleGroup: MuscleGroup;
+  equipment: string; // 'Halteres' | 'Barra' | 'Máquina' | 'Polia' | 'Peso Corporal' | 'Livre' | 'Outro'
+  instructions?: string;
+  notes?: string;
+  isFavorite: boolean;
+  isCustom: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface GymRoutineExercise {
+  id: string; // identificador único na ficha
+  exerciseId: string;
+  name: string;
+  muscleGroup: MuscleGroup;
+  targetSets: number; // ex: 4
+  targetReps: string; // ex: "8-12" ou "10"
+  defaultRestSeconds: number; // ex: 60, 90, 120
+  targetWeightKg?: number; // Carga inicial prevista
+  notes?: string;
+}
+
+export interface GymRoutine {
+  id: string;
+  name: string; // ex: "Treino A - Peito e Tríceps"
+  splitCategory?: string; // "ABC" | "ABCD" | "Push/Pull/Legs" | "Superior/Inferior" | "Personalizado"
+  description?: string;
+  muscleGroups: MuscleGroup[];
+  exercises: GymRoutineExercise[];
+  defaultRestSeconds: number;
+  isArchived: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface GymSetLog {
+  setNumber: number;
+  weightKg: number;
+  reps: number;
+  completed: boolean;
+  restSeconds?: number;
+}
+
+export interface GymWorkoutExerciseLog {
+  exerciseId: string;
+  name: string;
+  muscleGroup: MuscleGroup;
+  sets: GymSetLog[];
+  notes?: string;
+}
+
+export interface GymWorkout {
+  id: string;
+  routineId?: string;
+  routineName: string;
+  startedAt: number; // timestamp UTC
+  endedAt?: number; // timestamp UTC
+  durationMinutes: number;
+  exercises: GymWorkoutExerciseLog[];
+  totalVolumeKg: number;
+  totalSetsCompleted: number;
+  notes?: string;
+  status: 'completed' | 'abandoned' | 'in_progress';
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface GymMeasurement {
+  id: string;
+  date: string; // 'YYYY-MM-DD'
+  weightKg?: number;
+  bodyFatPercent?: number;
+  chestCm?: number;
+  waistCm?: number;
+  leftBicepsCm?: number;
+  rightBicepsCm?: number;
+  thighsCm?: number;
+  calvesCm?: number;
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface GymPreferences {
+  id: string; // 'gym_preferences'
+  weeklyGoalDays: number; // ex: 3, 4, 5
+  preferredDays: number[]; // [1, 2, 4, 5] (1 = Seg, ..., 6 = Sáb, 0 = Dom)
+  plannedRoutineMap: Record<number, string>; // { 1: routineId, 3: routineId }
+  defaultRestSeconds: number; // ex: 90
+  updatedAt: number;
+}
+
+export interface ActiveWorkoutState {
+  id: string;
+  routineId?: string;
+  routineName: string;
+  startedAt: number;
+  elapsedSeconds: number;
+  isPaused: boolean;
+  exercises: GymWorkoutExerciseLog[];
+  notes?: string;
+  currentRestTimer?: {
+    startedAt: number;
+    durationSeconds: number;
+    targetExerciseName?: string;
+  } | null;
+}
+
