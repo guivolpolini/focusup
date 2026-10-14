@@ -8,6 +8,7 @@ import {
   loadActiveWorkoutState,
   clearActiveWorkoutState,
   getPreviousPerformanceForSet,
+  isValidCompletedWorkout,
 } from '../lib/gymEngine';
 import type { GymWorkout, GymWorkoutExerciseLog, ActiveWorkoutState } from '../types';
 
@@ -142,6 +143,33 @@ describe('gymEngine', () => {
     expect(stats.lastWorkout?.id).toBe('w-2');
     // Semana passada bateu a meta (3 treinos >= 3); semana atual tem 2, preserva streak de 1
     expect(stats.weeklyStreak).toBe(1);
+  });
+
+  it('ignores accidental 0-set workouts when computing weekly stats', () => {
+    const refDate = new Date(2026, 9, 14, 12, 0, 0); // Quarta-feira
+    const tCurrentWeek1 = new Date(2026, 9, 14, 10, 0).getTime();
+
+    // Treino iniciado e parado por engano: 0 séries concluídas, 1 minuto de duração
+    const accidentalWorkout: GymWorkout = {
+      id: 'w-accidental',
+      routineName: 'Treino A',
+      startedAt: tCurrentWeek1,
+      durationMinutes: 1,
+      status: 'completed',
+      totalVolumeKg: 0,
+      totalSetsCompleted: 0,
+      createdAt: tCurrentWeek1,
+      updatedAt: tCurrentWeek1,
+      exercises: [],
+    };
+
+    expect(isValidCompletedWorkout(accidentalWorkout)).toBe(false);
+
+    // Sem treinos válidos, deve retornar 0 de meta semanal
+    const stats = calculateGymWeeklyStats([accidentalWorkout], 4, refDate);
+    expect(stats.workoutsThisWeekCount).toBe(0);
+    expect(stats.progressPercent).toBe(0);
+    expect(stats.lastWorkout).toBeNull();
   });
 
   it('calculates remaining rest seconds accurately', () => {

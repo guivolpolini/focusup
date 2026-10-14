@@ -22,6 +22,7 @@ import {
   ArrowUp,
   ArrowDown,
   Sparkles,
+  AlertTriangle,
 } from 'lucide-react';
 
 import { db, seedGymInitialData } from '../lib/db';
@@ -46,6 +47,7 @@ import {
   getPreviousPerformanceForSet,
   playGymRestSound,
   triggerGymVibration,
+  isValidCompletedWorkout,
 } from '../lib/gymEngine';
 import { sendLocalNotification } from '../lib/notificationEngine';
 import { formatDateToLocalYYYYMMDD } from '../lib/srsEngine';
@@ -154,6 +156,10 @@ export function GymSection({
   const weeklyStats = useMemo(() => {
     return calculateGymWeeklyStats(workouts, weeklyGoal);
   }, [workouts, weeklyGoal]);
+
+  const accidentalWorkouts = useMemo(() => {
+    return workouts.filter((w) => !isValidCompletedWorkout(w));
+  }, [workouts]);
 
   // Alerta de término de descanso (evitando notificações repetidas no mesmo timestamp)
   const notifiedTimerRef = useRef<number | null>(null);
@@ -269,9 +275,15 @@ export function GymSection({
 
     const { totalVolumeKg, totalSetsCompleted } = calculateWorkoutVolume(activeWorkout.exercises);
     if (totalSetsCompleted === 0) {
-      if (!confirm('Nenhuma série foi marcada como concluída neste treino. Deseja finalizar e registrar a sessão mesmo assim?')) {
-        return;
+      const confirmDiscard = confirm(
+        'Nenhuma série foi concluída neste treino.\n\nDeseja cancelar e descartar a sessão para não afetar sua meta semanal?\n\n[OK = Descartar treino sem salvar | Cancelar = Continuar editando]'
+      );
+      if (confirmDiscard) {
+        setActiveWorkout(null);
+        clearActiveWorkoutState();
+        setActiveSubTab('dashboard');
       }
+      return;
     }
     const durationMinutes = Math.max(1, Math.round((Date.now() - activeWorkout.startedAt) / (1000 * 60)));
 
@@ -435,6 +447,36 @@ export function GymSection({
       {/* ========================================================================= */}
       {activeSubTab === 'dashboard' && (
         <div className="space-y-6">
+          {/* Alerta de Treino Iniciado por Engano */}
+          {accidentalWorkouts.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200/90 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-950 shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0 text-amber-600">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="font-extrabold text-xs">
+                    Treino iniciado e parado por engano detectado ({accidentalWorkouts.length})
+                  </p>
+                  <p className="text-[11px] text-amber-800">
+                    Sessão com 0 séries concluídas desconsiderada da meta ({weeklyStats.workoutsThisWeekCount}/{weeklyGoal} treinos). Clique ao lado para apagar do histórico.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  for (const acc of accidentalWorkouts) {
+                    await db.gymWorkouts.delete(acc.id);
+                  }
+                }}
+                className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl transition shadow-xs whitespace-nowrap self-start sm:self-auto active:scale-95 cursor-pointer"
+              >
+                Limpar do Histórico
+              </button>
+            </div>
+          )}
+
           {/* Grid de Métricas da Semana */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {/* Meta Semanal de Treinos */}
@@ -1393,8 +1435,20 @@ export function GymSection({
                     <div>
                       <div className="flex items-center gap-2">
                         <h4 className="font-black text-slate-900 text-sm">{w.routineName}</h4>
-                        <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                          {w.status === 'completed' ? 'Concluído' : 'Incompleto'}
+                        <span
+                          className={`text-[10px] font-mono px-2 py-0.5 rounded-md border ${
+                            !isValidCompletedWorkout(w)
+                              ? 'text-amber-800 bg-amber-50 border-amber-200 font-bold'
+                              : w.status === 'completed'
+                              ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                              : 'text-slate-600 bg-slate-50 border-slate-200'
+                          }`}
+                        >
+                          {!isValidCompletedWorkout(w)
+                            ? '0 séries (Iniciado por engano)'
+                            : w.status === 'completed'
+                            ? 'Concluído'
+                            : 'Incompleto'}
                         </span>
                       </div>
                       <div className="text-xs text-slate-500 mt-1 flex items-center gap-3 font-mono">

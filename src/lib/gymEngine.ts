@@ -48,6 +48,19 @@ export function getMondaySundayWeekRange(referenceDate: Date = new Date()): { st
 }
 
 /**
+ * Determina se uma sessão de treino é considerada válida e concluída.
+ * Evita que treinos iniciados e finalizados por engano (com 0 séries e duração irrisória)
+ * contem na meta semanal ou relatórios.
+ */
+export function isValidCompletedWorkout(workout: GymWorkout): boolean {
+  if (workout.status !== 'completed') return false;
+  const sets = workout.totalSetsCompleted || 0;
+  const duration = workout.durationMinutes || 0;
+  // Considera válido se completou ao menos 1 série ou se teve duração relevante (>= 15 minutos)
+  return sets > 0 || duration >= 15;
+}
+
+/**
  * Calcula as estatísticas semanais de academia (treinos realizados, progresso na meta e streak de semanas).
  */
 export function calculateGymWeeklyStats(
@@ -55,7 +68,7 @@ export function calculateGymWeeklyStats(
   weeklyGoalDays: number = 4,
   referenceDate: Date = new Date()
 ): GymWeeklyStats {
-  const completedWorkouts = workouts.filter((w) => w.status === 'completed');
+  const completedWorkouts = workouts.filter(isValidCompletedWorkout);
 
   // Último treino realizado
   const sortedWorkouts = [...completedWorkouts].sort((a, b) => b.startedAt - a.startedAt);

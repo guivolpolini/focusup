@@ -12,6 +12,7 @@ import type {
 } from '../types';
 import { formatDateToLocalYYYYMMDD } from './srsEngine';
 import { isHabitScheduledForDate, getHabitLogForDate, getHabitStatusForDate } from './habitEngine';
+import { isValidCompletedWorkout } from './gymEngine';
 
 export interface WeekRange {
   weekStartStr: string; // 'YYYY-MM-DD' (Segunda-feira)
@@ -178,7 +179,7 @@ export function calculateWeeklyReport(params: {
   // 2. DIMENSÃO ACADEMIA
   // --------------------------------------------------------------------------
   const weekWorkouts = gymWorkouts.filter((w) => {
-    return w.startedAt >= startTimeMs && w.startedAt <= endTimeMs && w.status === 'completed';
+    return w.startedAt >= startTimeMs && w.startedAt <= endTimeMs && isValidCompletedWorkout(w);
   });
 
   const completedWorkoutsCount = weekWorkouts.length;
