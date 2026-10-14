@@ -12,7 +12,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons.svg'],
       manifest: {
-        name: 'FocusUp — Arena do Conhecimento',
+        name: 'FocusUp',
         short_name: 'FocusUp',
         description: 'Aplicativo pessoal de produtividade, estudos, SRS e foco',
         theme_color: '#4f46e5',

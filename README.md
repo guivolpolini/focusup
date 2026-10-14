@@ -1,4 +1,4 @@
-# FocusUp — Arena do Conhecimento
+# FocusUp
 
 > Aplicativo pessoal de estudos, consistência, repetição espaçada e produtividade. Funciona 100% no cliente (offline-first PWA) com persistência local IndexedDB.
 
