@@ -10,7 +10,6 @@ import {
   Calendar,
   Layers,
   BookOpen,
-  BrainCircuit,
   Award,
   Trash2,
   Download,
@@ -22,7 +21,6 @@ import {
   Trophy,
   Swords,
   ChevronRight,
-  Star,
   Settings2,
   Plus,
   GraduationCap,
@@ -58,7 +56,7 @@ import {
   saveTimerState,
   clearTimerState,
 } from './lib/timerEngine';
-import { calculateNextSRSReview, formatDateToLocalYYYYMMDD } from './lib/srsEngine';
+import { formatDateToLocalYYYYMMDD } from './lib/srsEngine';
 import { generateWeeklySchedule, type SchedulerOutput } from './lib/schedulerEngine';
 import {
   exportAllData,
@@ -97,7 +95,7 @@ import type {
 } from './types';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'tracks' | 'college' | 'gym' | 'habits' | 'weekly_report' | 'schedule' | 'progress' | 'flashcards' | 'career' | 'settings'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'tracks' | 'college' | 'gym' | 'habits' | 'weekly_report' | 'schedule' | 'progress' | 'career' | 'settings'>('home');
   const [now, setNow] = useState(Date.now());
   const [currentReview, setCurrentReview] = useState<WeeklyReview | null>(null);
   const [currentSchedule, setCurrentSchedule] = useState<SchedulerOutput | null>(null);
@@ -154,9 +152,8 @@ export function App() {
   const [pendingImportResult, setPendingImportResult] = useState<ParsedDocumentResult | null>(null);
   const [editableImportText, setEditableImportText] = useState<string>('');
 
-  // Flashcards para revisão hoje
+  // Data local no formato YYYY-MM-DD
   const todayStr = formatDateToLocalYYYYMMDD(new Date());
-  const dueFlashcards = flashcards.filter((f) => f.nextReviewDate <= todayStr);
 
   // Estado de Notificações Mobile
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>('default');
@@ -417,38 +414,6 @@ export function App() {
     streak
   );
 
-  // Estado para revisão de flashcards
-  const [reviewIndex, setReviewIndex] = useState(0);
-  const [showAnswer, setShowAnswer] = useState(false);
-
-  const handleSRSGrade = async (grade: 'hard' | 'medium' | 'easy') => {
-    const card = dueFlashcards[reviewIndex];
-    if (!card) return;
-
-    const result = calculateNextSRSReview(
-      grade,
-      card.repetitions,
-      card.intervalDays,
-      card.easeFactor,
-      new Date()
-    );
-
-    await db.flashcards.update(card.id, {
-      ...result,
-      lastReviewedAt: Date.now(),
-      reviewsCount: card.reviewsCount + 1,
-      updatedAt: Date.now(),
-    });
-
-    setShowAnswer(false);
-    // Como a lista reativa do Dexie já remove o cartão após o update, o próximo cartão naturalmente ocupa o índice atual
-    if (reviewIndex >= dueFlashcards.length - 1) {
-      setReviewIndex(0);
-      triggerVictoryEffect();
-      alert('Incrível! Todas as cartas do dia foram dominadas! (+XP adicionado)');
-    }
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row pb-20 md:pb-0 selection:bg-indigo-100 selection:text-indigo-900">
       {/* Sidebar Desktop — Visual Claro & Gamificado */}
@@ -583,22 +548,6 @@ export function App() {
             Relatório Semanal
           </button>
           <button
-            onClick={() => setActiveTab('flashcards')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
-              activeTab === 'flashcards'
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <BrainCircuit className="w-5 h-5 text-indigo-500" />
-            Batalha de Flashcards
-            {dueFlashcards.length > 0 && (
-              <span className="ml-auto bg-amber-500 text-white text-xs px-2 py-0.5 rounded-full font-black animate-bounce shadow-xs">
-                {dueFlashcards.length}
-              </span>
-            )}
-          </button>
-          <button
             onClick={() => setActiveTab('schedule')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
               activeTab === 'schedule'
@@ -700,23 +649,19 @@ export function App() {
               </div>
 
               <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Revisões no Deck</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tarefas Pendentes</span>
                 <div className="mt-2 flex items-baseline gap-1.5">
-                  <span className="text-3xl font-black text-slate-900">{dueFlashcards.length}</span>
-                  <span className="text-xs text-slate-400 font-bold">cartões</span>
+                  <span className="text-3xl font-black text-slate-900">
+                    {tasks.filter((t) => t.status !== 'completed').length}
+                  </span>
+                  <span className="text-xs text-slate-400 font-bold">em aberto</span>
                 </div>
-                {dueFlashcards.length > 0 ? (
-                  <button
-                    onClick={() => setActiveTab('flashcards')}
-                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 mt-2 inline-flex items-center gap-1"
-                  >
-                    Batalhar agora <ChevronRight className="w-3 h-3" />
-                  </button>
-                ) : (
-                  <p className="text-[10px] text-emerald-600 font-bold mt-2 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> Deck dominado!
-                  </p>
-                )}
+                <button
+                  onClick={() => setActiveTab('focus')}
+                  className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 mt-2 inline-flex items-center gap-1"
+                >
+                  Ver no QG de Foco <ChevronRight className="w-3 h-3" />
+                </button>
               </div>
 
               <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
@@ -1249,155 +1194,7 @@ export function App() {
           </div>
         )}
 
-        {/* TAB: BATALHA DE FLASHCARDS */}
-        {activeTab === 'flashcards' && (
-          <div className="max-w-xl mx-auto space-y-6">
-            <header className="text-center">
-              <h2 className="text-2xl font-black text-slate-900">Arena de Flashcards (SRS)</h2>
-              <p className="text-xs text-slate-500 mt-1">
-                Derrote os cartões pendentes para consolidar o conhecimento na memória de longo prazo.
-              </p>
-            </header>
 
-            {dueFlashcards.length > 0 ? (
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6 text-center">
-                <div className="flex items-center justify-between text-xs font-bold text-slate-500">
-                  <span className="bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-lg border border-indigo-200">
-                    Carta {reviewIndex + 1} de {dueFlashcards.length}
-                  </span>
-                  <span className="text-amber-500 flex items-center gap-1 font-mono font-bold">
-                    <Star className="w-3.5 h-3.5 fill-amber-400" /> +5 XP
-                  </span>
-                </div>
-
-                <div className="min-h-40 flex flex-col items-center justify-center p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                  <p className="text-xl font-black text-slate-900">
-                    {dueFlashcards[reviewIndex]?.front}
-                  </p>
-
-                  {showAnswer && (
-                    <div className="mt-5 pt-5 border-t border-slate-200 text-indigo-700 font-semibold animate-in fade-in text-base">
-                      {dueFlashcards[reviewIndex]?.back}
-                    </div>
-                  )}
-                </div>
-
-                {!showAnswer ? (
-                  <button
-                    onClick={() => setShowAnswer(true)}
-                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-black py-3.5 rounded-2xl transition shadow-sm active:scale-98"
-                  >
-                    Virar Carta (Revelar Resposta)
-                  </button>
-                ) : (
-                  <div className="grid grid-cols-3 gap-3">
-                    <button
-                      onClick={() => handleSRSGrade('hard')}
-                      className="p-3.5 rounded-2xl bg-rose-50 text-rose-700 font-bold border border-rose-200 hover:bg-rose-100 transition text-xs"
-                    >
-                      Difícil (1d)
-                    </button>
-                    <button
-                      onClick={() => handleSRSGrade('medium')}
-                      className="p-3.5 rounded-2xl bg-amber-50 text-amber-700 font-bold border border-amber-200 hover:bg-amber-100 transition text-xs"
-                    >
-                      Médio (3d+)
-                    </button>
-                    <button
-                      onClick={() => handleSRSGrade('easy')}
-                      className="p-3.5 rounded-2xl bg-emerald-50 text-emerald-700 font-bold border border-emerald-200 hover:bg-emerald-100 transition text-xs"
-                    >
-                      Fácil (Multiplica)
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-4">
-                <Trophy className="w-14 h-14 text-amber-500 mx-auto" />
-                <h3 className="font-black text-xl text-slate-900">Todas as cartas dominadas!</h3>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  Seu cérebro consolidou o conteúdo agendado para hoje. Volte amanhã para novas revisões.
-                </p>
-              </div>
-            )}
-
-            {/* Gerenciador / Criação de Novos Flashcards */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-extrabold text-slate-900 text-sm">Criar Nova Carta de Revisão</h3>
-                <span className="text-xs text-slate-400 font-medium">{flashcards.length} cartas no deck</span>
-              </div>
-
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const form = e.currentTarget;
-                  const front = (form.elements.namedItem('front') as HTMLInputElement).value;
-                  const back = (form.elements.namedItem('back') as HTMLTextAreaElement).value;
-                  const subjectId = (form.elements.namedItem('subjectId') as HTMLSelectElement).value;
-
-                  if (!front || !back) return;
-
-                  await db.flashcards.add({
-                    id: `fc-${Date.now()}`,
-                    front,
-                    back,
-                    subjectId,
-                    easeFactor: 2.5,
-                    intervalDays: 1,
-                    repetitions: 0,
-                    nextReviewDate: formatDateToLocalYYYYMMDD(new Date()),
-                    reviewsCount: 0,
-                    archived: false,
-                    createdAt: Date.now(),
-                    updatedAt: Date.now(),
-                  });
-
-                  form.reset();
-                  alert('Nova carta adicionada à arena!');
-                }}
-                className="space-y-3"
-              >
-                <div>
-                  <input
-                    name="front"
-                    placeholder="Pergunta ou conceito (Frente)"
-                    required
-                    className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
-                  />
-                </div>
-                <div>
-                  <textarea
-                    name="back"
-                    placeholder="Resposta explicada (Verso)"
-                    rows={2}
-                    required
-                    className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <select
-                    name="subjectId"
-                    className="text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 flex-1 focus:outline-hidden"
-                  >
-                    {uniqueSubjects.map((sub) => (
-                      <option key={sub.id} value={sub.id}>
-                        {sub.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="submit"
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition active:scale-95"
-                  >
-                    + Adicionar Carta
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
 
         {/* TAB: TRILHAS & MISSÕES */}
         {activeTab === 'tracks' && (
@@ -2763,7 +2560,7 @@ export function App() {
                     weekStartDate: new Date(),
                     availability: preferences?.weeklyAvailability || [],
                     pendingTasks: tasks.filter((t) => t.status === 'pending'),
-                    dueFlashcards,
+                    dueFlashcards: [],
                   });
                   setCurrentSchedule(schedule);
                   triggerVictoryEffect();
@@ -2918,9 +2715,9 @@ export function App() {
                 <div className="text-xs text-slate-400 font-medium mt-1">Tempo efetivamente estudado</div>
               </div>
               <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Flashcards no Deck</span>
-                <div className="text-3xl font-black text-slate-900 mt-2">{flashcards.length}</div>
-                <div className="text-xs text-slate-400 font-medium mt-1">{totalFlashcardReviews} revisões feitas</div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sessões de Foco</span>
+                <div className="text-3xl font-black text-slate-900 mt-2">{sessions.length}</div>
+                <div className="text-xs text-slate-400 font-medium mt-1">Sessões registradas no histórico</div>
               </div>
             </div>
 
@@ -3463,13 +3260,13 @@ export function App() {
           Hábitos
         </button>
         <button
-          onClick={() => setActiveTab('flashcards')}
+          onClick={() => setActiveTab('weekly_report')}
           className={`flex flex-col items-center gap-1 p-1 text-[10px] font-bold ${
-            activeTab === 'flashcards' ? 'text-indigo-600' : 'text-slate-400'
+            activeTab === 'weekly_report' ? 'text-indigo-600 font-black' : 'text-slate-400'
           }`}
         >
-          <BrainCircuit className="w-5 h-5" />
-          Cartas
+          <FileText className="w-5 h-5" />
+          Relatório
         </button>
         <button
           onClick={() => setActiveTab('settings')}
