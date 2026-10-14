@@ -26,6 +26,8 @@ import {
   GraduationCap,
   FileUp,
   FileText,
+  Bell,
+  BellRing,
 } from 'lucide-react';
 
 import { db, seedInitialData } from './lib/db';
@@ -47,6 +49,11 @@ import {
 import { calculateGamification } from './lib/gamification';
 import { generateWeeklyReviewAnalysis } from './lib/weeklyReviewEngine';
 import { parseStudyDocument } from './lib/documentParser';
+import {
+  requestNotificationPermission,
+  sendLocalNotification,
+  getNotificationPermissionStatus,
+} from './lib/notificationEngine';
 import type { SessionMode, StudySession, WeeklyReview } from './types';
 
 export function App() {
@@ -81,9 +88,14 @@ export function App() {
   const todayStr = formatDateToLocalYYYYMMDD(new Date());
   const dueFlashcards = flashcards.filter((f) => f.nextReviewDate <= todayStr);
 
+  // Estado de Notificações Mobile
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>('default');
+  const [notifiedSessionStart, setNotifiedSessionStart] = useState<number | null>(null);
+
   // Inicialização das sementes
   useEffect(() => {
     seedInitialData();
+    setNotifPermission(getNotificationPermissionStatus());
   }, []);
 
   // Loop de relógio para UI do Timer
@@ -105,6 +117,21 @@ export function App() {
 
   // Cálculos do timer
   const timerProgress = calculateTimerProgress(timerState, now);
+
+  // Disparo de notificação e vibração no término do timer
+  useEffect(() => {
+    if (
+      timerState.status === 'running' &&
+      timerProgress.isFinished &&
+      notifiedSessionStart !== timerState.startedAt
+    ) {
+      setNotifiedSessionStart(timerState.startedAt);
+      sendLocalNotification('Tempo Esgotado! ⚡ FocusUp', {
+        body: `Sua sessão de ${timerState.plannedMinutes} min foi concluída! Registre seu progresso.`,
+        tag: 'focusup-timer-done',
+      });
+    }
+  }, [timerState.status, timerProgress.isFinished, timerState.startedAt, timerState.plannedMinutes, notifiedSessionStart]);
 
   // Manipuladores do Cronômetro
   const startTimer = (mode: SessionMode = 'pomodoro', customMinutes?: number, subjectId?: string, taskId?: string) => {
@@ -189,6 +216,10 @@ export function App() {
       }
 
       triggerVictoryEffect();
+      sendLocalNotification('Missão Concluída! 🚀 FocusUp', {
+        body: `Sessão de ${Math.floor(actualSeconds / 60)} min finalizada! Seu XP foi atualizado no ranking.`,
+        tag: 'focusup-session-complete',
+      });
     }
 
     setTimerState({
@@ -1904,6 +1935,92 @@ export function App() {
                     className="w-20 text-xs p-2 rounded-xl bg-white border border-slate-200 text-center font-bold font-mono focus:outline-hidden"
                   />
                   <span className="text-xs font-bold text-slate-500">minutos</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Notificações no Celular & Vibração */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-indigo-600" />
+                  <h3 className="font-extrabold text-slate-900 text-sm">Notificações no Celular & Vibração</h3>
+                </div>
+                {notifPermission === 'granted' && (
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
+                    ATIVADAS ✅
+                  </span>
+                )}
+                {notifPermission === 'denied' && (
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800">
+                    BLOQUEADAS ⚠️
+                  </span>
+                )}
+                {notifPermission === 'default' && (
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800">
+                    PENDENTE
+                  </span>
+                )}
+                {notifPermission === 'unsupported' && (
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 text-slate-600">
+                    NÃO SUPORTADO
+                  </span>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Receba alertas sonoros e hápticos (vibração) no final de cada sessão Pomodoro ou Deep Work, mesmo com o app em segundo plano.
+              </p>
+
+              {notifPermission !== 'granted' ? (
+                <button
+                  onClick={async () => {
+                    const granted = await requestNotificationPermission();
+                    setNotifPermission(getNotificationPermissionStatus());
+                    if (granted) {
+                      await sendLocalNotification('FocusUp Notificações Ativas! ⚡', {
+                        body: 'Você receberá alertas no término de suas sessões de estudo com vibração física.',
+                      });
+                      alert('Notificações ativadas com sucesso!');
+                    } else {
+                      alert('Permissão não concedida. Verifique as configurações de notificações do seu navegador.');
+                    }
+                  }}
+                  className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-2xl transition shadow-xs text-xs active:scale-98"
+                >
+                  <BellRing className="w-4 h-4" />
+                  Ativar Notificações no Celular
+                </button>
+              ) : (
+                <button
+                  onClick={async () => {
+                    await sendLocalNotification('Teste de Notificação FocusUp! 🔔', {
+                      body: 'Alerta funcionando! Seu celular vibrou e o aviso foi entregue com sucesso.',
+                    });
+                    alert('Notificação de teste disparada!');
+                  }}
+                  className="w-full flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-2xl transition text-xs active:scale-98"
+                >
+                  <BellRing className="w-4 h-4 text-indigo-600" />
+                  Testar Alerta & Vibração Agora
+                </button>
+              )}
+
+              {/* Guia de Instalação Mobile PWA */}
+              <div className="pt-2 border-t border-slate-100 space-y-2">
+                <div className="text-[11px] font-bold text-slate-700">Como instalar no Celular (PWA):</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] text-slate-600">
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+                    <span className="font-bold text-indigo-700">📱 Android (Chrome / Edge)</span>
+                    <p>Toque no menu <strong>⋮</strong> e selecione <strong>"Instalar aplicativo"</strong> ou "Adicionar à tela inicial".</p>
+                  </div>
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+                    <span className="font-bold text-indigo-700">🍏 iPhone (Safari iOS 16.4+)</span>
+                    <p>Toque no botão de compartilhar <strong>⎋</strong> e escolha <strong>"Adicionar à Tela de Início"</strong>.</p>
+                  </div>
+                </div>
+                <div className="text-[9px] text-slate-400">
+                  🛡️ 100% offline & local via Service Worker. Nenhum servidor externo rastreia suas notificações.
                 </div>
               </div>
             </div>
