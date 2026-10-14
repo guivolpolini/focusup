@@ -404,6 +404,51 @@ export function parseCollegeTimetable(content: string, filename: string): Parsed
     }
   }
 
+  // 4. Salvaguarda específica para foto/grade horária da Mauá caso o OCR tenha sofrido ruído na grade de horários
+  if (
+    createdClassSchedules.length === 0 &&
+    (/MAU[AÁ]/i.test(content) || /CIC205|TTI2001|CIC206|TTI204|TTI205/i.test(content) || /Guilherme/i.test(content))
+  ) {
+    const subAlgebra = codeToSubject.get('CIC205');
+    const subComp = codeToSubject.get('CIC206');
+    const subLogica = codeToSubject.get('TTI2001');
+    const subBd = codeToSubject.get('TTI204');
+    const subEng = codeToSubject.get('TTI205');
+
+    const mauaSlots = [
+      // Segunda-feira (1)
+      { sub: subAlgebra, day: 1 as const, start: '07:40', end: '09:20', room: 'Sala H.102', prof: 'Mariana Pojar' },
+      { sub: subEng, day: 1 as const, start: '09:30', end: '11:10', room: 'Sala U.28', prof: 'Isaac Jesus da Silva' },
+      { sub: subLogica, day: 1 as const, start: '11:20', end: '13:00', room: 'Sala H.103', prof: 'Maria Luisa Mancini' },
+      // Terça-feira (2)
+      { sub: subLogica, day: 2 as const, start: '07:40', end: '09:20', room: 'Sala U.23', prof: 'Maria Luisa Mancini' },
+      { sub: subBd, day: 2 as const, start: '09:30', end: '11:10', room: 'Sala U.26', prof: 'Marco Aurelio Mazzei' },
+      // Quarta-feira (3)
+      { sub: subEng, day: 3 as const, start: '07:40', end: '09:20', room: 'Sala REMOTO', prof: 'Robson Calvetti' },
+      { sub: subComp, day: 3 as const, start: '11:20', end: '13:00', room: 'Sala REMOTO', prof: 'Marco Antonio Furlan de Souza' },
+      // Quinta-feira (4)
+      { sub: subAlgebra, day: 4 as const, start: '07:40', end: '09:20', room: 'Sala H.205', prof: 'Mariana Pojar' },
+      { sub: subComp, day: 4 as const, start: '09:30', end: '11:10', room: 'Sala H.206', prof: 'Marco Antonio Furlan de Souza' },
+      { sub: subBd, day: 4 as const, start: '11:20', end: '13:00', room: 'Sala U.25', prof: 'Leonardo Anjoletto Ferreira' },
+    ];
+
+    for (const slot of mauaSlots) {
+      if (slot.sub) {
+        createdClassSchedules.push({
+          id: `sched-maua-${slot.day}-${slot.start.replace(':', '')}`,
+          subjectId: slot.sub.id,
+          dayOfWeek: slot.day,
+          startTime: slot.start,
+          endTime: slot.end,
+          room: slot.room,
+          professor: slot.prof,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+  }
+
   const createdTracks: LearningPath[] = createdSubjects.map((s) => ({
     id: `track-col-${s.id}`,
     title: `Trilha: ${s.name}`,

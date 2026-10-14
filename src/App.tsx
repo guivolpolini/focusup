@@ -97,10 +97,10 @@ export function App() {
   });
 
   // Consultas Reativas ao Dexie
-  const subjects = useLiveQuery(() => db.subjects.where('archived').equals(0).toArray()) || [];
+  const subjects = useLiveQuery(() => db.subjects.filter((s) => !s.archived).toArray()) || [];
   const tasks = useLiveQuery(() => db.tasks.toArray()) || [];
-  const flashcards = useLiveQuery(() => db.flashcards.where('archived').equals(0).toArray()) || [];
-  const learningPaths = useLiveQuery(() => db.learningPaths.where('archived').equals(0).toArray()) || [];
+  const flashcards = useLiveQuery(() => db.flashcards.filter((f) => !f.archived).toArray()) || [];
+  const learningPaths = useLiveQuery(() => db.learningPaths.filter((lp) => !lp.archived).toArray()) || [];
   const sessions = useLiveQuery(() => db.studySessions.toArray()) || [];
   const preferences = useLiveQuery(() => db.preferences.get('user_preferences'));
   const projects = useLiveQuery(() => db.portfolioProjects.toArray()) || [];
@@ -1441,14 +1441,14 @@ export function App() {
                   <div className="flex items-center justify-between">
                     <h3 className="font-bold text-slate-900 text-sm">Disciplinas do Semestre & Situação Acadêmica</h3>
                     <span className="text-xs text-slate-400 font-medium">
-                      {subjects.filter((s) => s.category === 'college').length} disciplinas
+                      {subjects.filter((s) => s.category === 'college' || !s.category).length} disciplinas
                     </span>
                   </div>
 
-                  {subjects.filter((s) => s.category === 'college').length > 0 ? (
+                  {subjects.filter((s) => s.category === 'college' || !s.category).length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {subjects
-                        .filter((s) => s.category === 'college')
+                        .filter((s) => s.category === 'college' || !s.category)
                         .map((colSub) => {
                           const collegeTasks = tasks.filter((t) => t.subjectId === colSub.id);
                           const completedTasks = collegeTasks.filter((t) => t.status === 'completed');
@@ -2485,29 +2485,39 @@ export function App() {
                         (!pendingImportResult.createdClassSchedules || pendingImportResult.createdClassSchedules.length === 0)
                       }
                       onClick={async () => {
-                        if (pendingImportResult.createdSubjects.length > 0) {
-                          await db.subjects.bulkAdd(pendingImportResult.createdSubjects);
-                          for (const s of pendingImportResult.createdSubjects) {
-                            await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
-                          }
-                        }
-                        if (pendingImportResult.createdClassSchedules && pendingImportResult.createdClassSchedules.length > 0) {
-                          await db.collegeClasses.bulkAdd(pendingImportResult.createdClassSchedules);
-                        }
-                        if (pendingImportResult.createdTasks.length > 0) {
-                          await db.tasks.bulkAdd(pendingImportResult.createdTasks);
-                        }
-                        if (pendingImportResult.createdTracks.length > 0) {
-                          await db.learningPaths.bulkAdd(pendingImportResult.createdTracks);
-                        }
+                        try {
+                          if (pendingImportResult.createdSubjects.length > 0) {
+                            const subsToSave = pendingImportResult.createdSubjects.map((s) => ({
+                              ...s,
+                              category: 'college' as const,
+                              archived: false,
+                            }));
+                            await db.subjects.bulkPut(subsToSave);
 
-                        triggerVictoryEffect();
-                        setPendingImportResult(null);
-                        setCollegeSubTab(
-                          pendingImportResult.createdClassSchedules && pendingImportResult.createdClassSchedules.length > 0
-                            ? 'timetable'
-                            : 'disciplines'
-                        );
+                            const gradeConfigs = subsToSave.map((s) => createDefaultGradeConfig(s.id, 6.0));
+                            await db.subjectGrades.bulkPut(gradeConfigs);
+                          }
+                          if (pendingImportResult.createdClassSchedules && pendingImportResult.createdClassSchedules.length > 0) {
+                            await db.collegeClasses.bulkPut(pendingImportResult.createdClassSchedules);
+                          }
+                          if (pendingImportResult.createdTasks.length > 0) {
+                            await db.tasks.bulkPut(pendingImportResult.createdTasks);
+                          }
+                          if (pendingImportResult.createdTracks.length > 0) {
+                            await db.learningPaths.bulkPut(pendingImportResult.createdTracks);
+                          }
+
+                          triggerVictoryEffect();
+                          const targetTab =
+                            pendingImportResult.createdClassSchedules && pendingImportResult.createdClassSchedules.length > 0
+                              ? 'timetable'
+                              : 'disciplines';
+                          setPendingImportResult(null);
+                          setCollegeSubTab(targetTab);
+                        } catch (err: any) {
+                          console.error('Falha ao salvar no banco Dexie:', err);
+                          alert(`Erro ao cadastrar dados: ${err.message || err}`);
+                        }
                       }}
                       className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-extrabold text-xs px-6 py-2.5 rounded-xl shadow-xs transition active:scale-95"
                     >
