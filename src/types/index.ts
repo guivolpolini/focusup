@@ -9,6 +9,7 @@ export interface Subject {
   description?: string;
   color: string;
   priority: Priority;
+  category?: 'college' | 'self_study'; // 'college' para faculdade, 'self_study' para autodidata
   targetMinutesPerWeek: number;
   startDate?: string;
   deadline?: string;

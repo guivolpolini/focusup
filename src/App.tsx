@@ -23,6 +23,7 @@ import {
   Star,
   Settings2,
   Plus,
+  GraduationCap,
 } from 'lucide-react';
 
 import { db, seedInitialData } from './lib/db';
@@ -46,7 +47,7 @@ import { generateWeeklyReviewAnalysis } from './lib/weeklyReviewEngine';
 import type { SessionMode, StudySession, WeeklyReview } from './types';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'tracks' | 'schedule' | 'progress' | 'flashcards' | 'career' | 'settings'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'tracks' | 'college' | 'schedule' | 'progress' | 'flashcards' | 'career' | 'settings'>('home');
   const [now, setNow] = useState(Date.now());
   const [currentReview, setCurrentReview] = useState<WeeklyReview | null>(null);
   const [currentSchedule, setCurrentSchedule] = useState<SchedulerOutput | null>(null);
@@ -376,6 +377,17 @@ export function App() {
           >
             <BookOpen className="w-5 h-5" />
             Trilhas & Missões
+          </button>
+          <button
+            onClick={() => setActiveTab('college')}
+            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
+              activeTab === 'college'
+                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <GraduationCap className="w-5 h-5 text-indigo-500" />
+            Faculdade
           </button>
           <button
             onClick={() => setActiveTab('flashcards')}
@@ -1174,6 +1186,202 @@ export function App() {
           </div>
         )}
 
+        {/* TAB: FACULDADE (MATÉRIAS ACADÊMICAS & PROVAS) */}
+        {activeTab === 'college' && (
+          <div className="space-y-6">
+            <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <GraduationCap className="w-6 h-6 text-indigo-600" />
+                  <h2 className="text-2xl font-black text-slate-900">Portal da Faculdade</h2>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Organize suas disciplinas do semestre, prazos de trabalhos, entregas e sessões de estudo para provas.
+                </p>
+              </div>
+            </header>
+
+            {/* Cadastro de Disciplina da Faculdade */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+              <h3 className="font-extrabold text-slate-900 text-sm">Adicionar Disciplina do Semestre</h3>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const form = e.currentTarget;
+                  const name = (form.elements.namedItem('collegeName') as HTMLInputElement).value;
+                  const color = (form.elements.namedItem('collegeColor') as HTMLInputElement).value || '#4f46e5';
+                  const targetMinutes = Number((form.elements.namedItem('collegeTarget') as HTMLInputElement).value) || 120;
+                  const deadline = (form.elements.namedItem('collegeDeadline') as HTMLInputElement).value;
+
+                  if (!name) return;
+
+                  await db.subjects.add({
+                    id: `col-${Date.now()}`,
+                    name,
+                    color,
+                    priority: 'high',
+                    category: 'college',
+                    targetMinutesPerWeek: targetMinutes,
+                    deadline: deadline || undefined,
+                    archived: false,
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                  });
+
+                  form.reset();
+                  triggerVictoryEffect();
+                  alert('Disciplina adicionada à grade da faculdade!');
+                }}
+                className="grid grid-cols-1 sm:grid-cols-4 gap-2"
+              >
+                <div className="sm:col-span-2 flex items-center gap-2">
+                  <input
+                    name="collegeColor"
+                    type="color"
+                    defaultValue="#4f46e5"
+                    className="w-9 h-9 rounded-xl cursor-pointer border-0 bg-transparent p-0"
+                    title="Cor da matéria"
+                  />
+                  <input
+                    name="collegeName"
+                    placeholder="Nome da disciplina (ex: Cálculo II, Algoritmos, Redes)..."
+                    required
+                    className="flex-1 text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
+                  />
+                </div>
+                <div>
+                  <input
+                    name="collegeDeadline"
+                    type="date"
+                    className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
+                    title="Data da Próxima Prova ou Trabalho Final"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    name="collegeTarget"
+                    type="number"
+                    defaultValue={120}
+                    className="w-20 text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 text-center focus:outline-hidden"
+                    title="Meta semanal de minutos"
+                  />
+                  <button
+                    type="submit"
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs p-3 rounded-xl shadow-xs transition active:scale-95"
+                  >
+                    + Adicionar
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* Disciplinas da Faculdade Cadastradas */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-slate-900 text-sm">Disciplinas Cadastradas</h3>
+                <span className="text-xs text-slate-400 font-medium">
+                  {subjects.filter((s) => s.category === 'college').length} disciplinas ativas
+                </span>
+              </div>
+
+              {subjects.filter((s) => s.category === 'college').length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {subjects
+                    .filter((s) => s.category === 'college')
+                    .map((colSub) => {
+                      const collegeTasks = tasks.filter((t) => t.subjectId === colSub.id);
+                      const completedTasks = collegeTasks.filter((t) => t.status === 'completed');
+
+                      return (
+                        <div
+                          key={colSub.id}
+                          className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-3"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div
+                                className="w-4 h-4 rounded-lg shadow-2xs"
+                                style={{ backgroundColor: colSub.color }}
+                              />
+                              <div>
+                                <h4 className="font-extrabold text-slate-900 text-base">{colSub.name}</h4>
+                                <div className="text-[11px] text-slate-400">
+                                  Meta: {colSub.targetMinutesPerWeek}m/sem • {completedTasks.length}/{collegeTasks.length} tarefas
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => startTimer('pomodoro', 25, colSub.id)}
+                                className="p-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition"
+                                title="Estudar esta disciplina agora"
+                              >
+                                <Play className="w-3.5 h-3.5 fill-current" />
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  if (confirm(`Remover disciplina "${colSub.name}"?`)) {
+                                    await db.subjects.delete(colSub.id);
+                                  }
+                                }}
+                                className="text-slate-300 hover:text-rose-500 p-1 transition"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {colSub.deadline && (
+                            <div className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200/80 flex items-center justify-between">
+                              <span>Próxima Prova / Entrega:</span>
+                              <span className="font-mono font-bold">{colSub.deadline}</span>
+                            </div>
+                          )}
+
+                          {/* Ações Rápidas de Tarefas para a Faculdade */}
+                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                            <button
+                              onClick={() => {
+                                const title = prompt(`Adicionar trabalho ou estudo para ${colSub.name}:`);
+                                if (title) {
+                                  db.tasks.add({
+                                    id: `task-${Date.now()}`,
+                                    title,
+                                    subjectId: colSub.id,
+                                    priority: 'high',
+                                    estimatedMinutes: 45,
+                                    actualStudiedMinutes: 0,
+                                    status: 'pending',
+                                    createdAt: Date.now(),
+                                    updatedAt: Date.now(),
+                                  });
+                                }
+                              }}
+                              className="text-indigo-600 font-bold hover:underline"
+                            >
+                              + Adicionar Trabalho/Estudo
+                            </button>
+                            <span className="text-slate-400 text-[11px]">
+                              {collegeTasks.filter((t) => t.status === 'pending').length} pendentes
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              ) : (
+                <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-3">
+                  <GraduationCap className="w-12 h-12 text-indigo-400 mx-auto" />
+                  <h4 className="font-extrabold text-slate-900 text-base">Nenhuma disciplina cadastrada</h4>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    Adicione suas matérias da faculdade no formulário acima para acompanhar provas, prazos e registrar horas de estudo dedicadas.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* TAB: ESTRATÉGIA SEMANAL */}
         {activeTab === 'schedule' && (
           <div className="space-y-6">
@@ -1765,6 +1973,15 @@ export function App() {
         >
           <BookOpen className="w-5 h-5" />
           Trilhas
+        </button>
+        <button
+          onClick={() => setActiveTab('college')}
+          className={`flex flex-col items-center gap-1 p-1 text-[10px] font-bold ${
+            activeTab === 'college' ? 'text-indigo-600' : 'text-slate-400'
+          }`}
+        >
+          <GraduationCap className="w-5 h-5" />
+          Facul
         </button>
         <button
           onClick={() => setActiveTab('flashcards')}
