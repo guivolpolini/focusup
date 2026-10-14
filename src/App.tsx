@@ -34,6 +34,8 @@ import {
   MapPin,
   User,
   CalendarDays,
+  Loader2,
+  Sparkles,
 } from 'lucide-react';
 
 import { db, seedInitialData } from './lib/db';
@@ -55,6 +57,9 @@ import {
 import { calculateGamification } from './lib/gamification';
 import { generateWeeklyReviewAnalysis } from './lib/weeklyReviewEngine';
 import { parseStudyDocument } from './lib/documentParser';
+import { extractTextFromPDF } from './lib/pdfParser';
+import { extractTextFromImage } from './lib/ocrParser';
+import { parseWithFreeLLM } from './lib/freellmClient';
 import {
   requestNotificationPermission,
   sendLocalNotification,
@@ -110,6 +115,11 @@ export function App() {
     return d === 0 ? 1 : Math.min(6, d);
   });
   const [showAddClassForm, setShowAddClassForm] = useState(false);
+
+  // Estados de importação inteligente (PDF, OCR, Texto, FreeLLM)
+  const [isImporting, setIsImporting] = useState(false);
+  const [importStatusMessage, setImportStatusMessage] = useState<string>('');
+  const [pastedText, setPastedText] = useState('');
 
   // Flashcards para revisão hoje
   const todayStr = formatDateToLocalYYYYMMDD(new Date());
@@ -1863,53 +1873,234 @@ export function App() {
               </div>
             )}
 
-            {/* SUB-ABA 3: IMPORTADOR INTELIGENTE DE DOCUMENTOS */}
+            {/* SUB-ABA 3: IMPORTADOR INTELIGENTE MULTI-FORMATO (PDF, OCR, ICS, JSON, CLIPBOARD) */}
             {collegeSubTab === 'import' && (
-              <div className="bg-gradient-to-br from-indigo-50/70 via-white to-amber-50/50 p-6 rounded-3xl border border-indigo-100 shadow-xs space-y-3">
-                <div className="flex items-center gap-2">
-                  <FileUp className="w-5 h-5 text-indigo-600" />
-                  <h3 className="font-extrabold text-slate-900 text-sm">
-                    Importar Ementa, Cronograma ou Calendário de Provas
-                  </h3>
-                </div>
-                <p className="text-xs text-slate-600">
-                  Envie um arquivo de texto, markdown ou ementa (`.txt`, `.md`, `.csv`). O FocusUp extrairá automaticamente
-                  as matérias, datas de provas e tópicos da trilha para organizar sua rotina.
-                </p>
+              <div className="space-y-6">
+                <div className="bg-gradient-to-br from-indigo-50/80 via-white to-amber-50/60 p-6 rounded-3xl border border-indigo-100 shadow-xs space-y-4">
+                  <div className="flex items-center gap-2">
+                    <FileUp className="w-5 h-5 text-indigo-600" />
+                    <div>
+                      <h3 className="font-extrabold text-slate-900 text-sm">
+                        Central de Importação Acadêmica Inteligente
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Extraia matérias, datas de provas e trilhas a partir de PDFs, fotos de lousa, calendários ou texto copiado.
+                      </p>
+                    </div>
+                  </div>
 
-                <div className="pt-1">
-                  <label className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl cursor-pointer shadow-xs transition active:scale-95">
-                    <FileText className="w-4 h-4" />
-                    Selecionar Documento (.txt, .md, .csv)
-                    <input
-                      type="file"
-                      accept=".txt,.md,.csv,.text"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        const text = await file.text();
-                        const result = parseStudyDocument(text, file.name);
+                  {/* Badges de Formatos Suportados */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <span className="px-2.5 py-1 rounded-xl text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-200">
+                      📄 PDF (.pdf)
+                    </span>
+                    <span className="px-2.5 py-1 rounded-xl text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-200">
+                      📷 FOTOS / PRINTS (.png, .jpg, .jpeg)
+                    </span>
+                    <span className="px-2.5 py-1 rounded-xl text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-200">
+                      📅 CALENDÁRIO (.ics)
+                    </span>
+                    <span className="px-2.5 py-1 rounded-xl text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      📊 PLANILHAS (.csv, .tsv)
+                    </span>
+                    <span className="px-2.5 py-1 rounded-xl text-[10px] font-black bg-slate-100 text-slate-800 border border-slate-200">
+                      📝 TEXTO (.txt, .md, .json)
+                    </span>
+                  </div>
 
-                        if (result.createdSubjects.length > 0) {
-                          await db.subjects.bulkAdd(result.createdSubjects);
-                          // Inicializar notas padrão para matérias criadas
-                          for (const s of result.createdSubjects) {
-                            await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
+                  {/* Estado de Processamento Ativo */}
+                  {isImporting && (
+                    <div className="flex items-center gap-3 p-4 bg-indigo-50 rounded-2xl border border-indigo-200 text-indigo-900 text-xs">
+                      <Loader2 className="w-5 h-5 animate-spin text-indigo-600 shrink-0" />
+                      <div className="space-y-0.5">
+                        <div className="font-bold">Processando documento no aparelho...</div>
+                        <div className="text-[11px] text-indigo-700">{importStatusMessage || 'Aguarde...'}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Área de Upload de Arquivos */}
+                  <div className="pt-2">
+                    <label
+                      className={`w-full flex flex-col items-center justify-center gap-3 p-8 rounded-3xl border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-white hover:bg-indigo-50/30 cursor-pointer transition shadow-2xs ${
+                        isImporting ? 'opacity-50 pointer-events-none' : ''
+                      }`}
+                    >
+                      <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600">
+                        <FileUp className="w-6 h-6" />
+                      </div>
+                      <div className="text-center space-y-1">
+                        <div className="text-xs font-black text-slate-800">
+                          Clique para selecionar ou arraste seu arquivo
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Suporta <strong>.pdf</strong>, <strong>.jpeg/.png</strong>, <strong>.ics</strong>, <strong>.txt</strong>, <strong>.md</strong>, <strong>.csv</strong>, <strong>.tsv</strong>, <strong>.json</strong>
+                        </div>
+                      </div>
+
+                      <input
+                        type="file"
+                        accept=".pdf,.png,.jpg,.jpeg,.webp,.ics,.txt,.md,.csv,.tsv,.json"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+
+                          setIsImporting(true);
+                          try {
+                            const ext = file.name.split('.').pop()?.toLowerCase() || '';
+
+                            if (ext === 'pdf') {
+                              setImportStatusMessage('Lendo páginas do documento PDF via Web Worker local...');
+                              const buffer = await file.arrayBuffer();
+                              const pdfText = await extractTextFromPDF(buffer);
+                              setImportStatusMessage('Extraindo matérias e datas de provas...');
+                              let result = parseStudyDocument(pdfText, file.name);
+
+                              if (result.createdSubjects.length > 0) {
+                                await db.subjects.bulkAdd(result.createdSubjects);
+                                for (const s of result.createdSubjects) {
+                                  await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
+                                }
+                              }
+                              if (result.createdTasks.length > 0) await db.tasks.bulkAdd(result.createdTasks);
+                              if (result.createdTracks.length > 0) await db.learningPaths.bulkAdd(result.createdTracks);
+
+                              triggerVictoryEffect();
+                              alert(result.summary);
+                            } else if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
+                              setImportStatusMessage('Inicializando OCR WebAssembly no navegador...');
+                              let ocrText = '';
+                              try {
+                                ocrText = await extractTextFromImage(file, (p, status) => {
+                                  setImportStatusMessage(`OCR WebAssembly: ${status} (${p}%)`);
+                                });
+                              } catch (err) {
+                                console.warn('Falha no OCR local:', err);
+                              }
+
+                              // Se OCR falhou ou retornou pouco texto, tentar FreeLLMAPI local
+                              if (!ocrText || ocrText.trim().length < 15) {
+                                setImportStatusMessage('Testando IA Local (FreeLLMAPI)...');
+                                const reader = new FileReader();
+                                const base64Promise = new Promise<string>((res) => {
+                                  reader.onload = () => res(reader.result as string);
+                                  reader.readAsDataURL(file);
+                                });
+                                const b64 = await base64Promise;
+                                const aiRes = await parseWithFreeLLM({ imageBase64: b64 });
+                                if (aiRes && (aiRes.createdSubjects.length > 0 || aiRes.createdTasks.length > 0)) {
+                                  if (aiRes.createdSubjects.length > 0) {
+                                    await db.subjects.bulkAdd(aiRes.createdSubjects);
+                                    for (const s of aiRes.createdSubjects) {
+                                      await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
+                                    }
+                                  }
+                                  if (aiRes.createdTasks.length > 0) await db.tasks.bulkAdd(aiRes.createdTasks);
+                                  if (aiRes.createdTracks.length > 0) await db.learningPaths.bulkAdd(aiRes.createdTracks);
+                                  triggerVictoryEffect();
+                                  alert(aiRes.summary);
+                                  return;
+                                }
+                              }
+
+                              setImportStatusMessage('Organizando dados reconhecidos...');
+                              let result = parseStudyDocument(ocrText, file.name);
+                              if (result.createdSubjects.length > 0) {
+                                await db.subjects.bulkAdd(result.createdSubjects);
+                                for (const s of result.createdSubjects) {
+                                  await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
+                                }
+                              }
+                              if (result.createdTasks.length > 0) await db.tasks.bulkAdd(result.createdTasks);
+                              if (result.createdTracks.length > 0) await db.learningPaths.bulkAdd(result.createdTracks);
+
+                              triggerVictoryEffect();
+                              alert(result.summary);
+                            } else {
+                              // Texto, MD, CSV, TSV, JSON, ICS
+                              setImportStatusMessage('Lendo arquivo de dados...');
+                              const text = await file.text();
+                              let result = parseStudyDocument(text, file.name);
+
+                              if (result.createdSubjects.length > 0) {
+                                await db.subjects.bulkAdd(result.createdSubjects);
+                                for (const s of result.createdSubjects) {
+                                  await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
+                                }
+                              }
+                              if (result.createdTasks.length > 0) await db.tasks.bulkAdd(result.createdTasks);
+                              if (result.createdTracks.length > 0) await db.learningPaths.bulkAdd(result.createdTracks);
+
+                              triggerVictoryEffect();
+                              alert(result.summary);
+                            }
+                          } catch (err: any) {
+                            alert(`Falha na importação: ${err.message || err}`);
+                          } finally {
+                            setIsImporting(false);
+                            setImportStatusMessage('');
                           }
-                        }
-                        if (result.createdTasks.length > 0) {
-                          await db.tasks.bulkAdd(result.createdTasks);
-                        }
-                        if (result.createdTracks.length > 0) {
-                          await db.learningPaths.bulkAdd(result.createdTracks);
-                        }
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
 
-                        triggerVictoryEffect();
-                        alert(result.summary);
+                {/* Opção 2: Colar Texto Diretamente (Clipboard / Ctrl+V) */}
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-indigo-600" />
+                      <h4 className="font-extrabold text-slate-900 text-xs">
+                        Ou Cole o Texto Diretamente (Sem precisar baixar arquivo)
+                      </h4>
+                    </div>
+                    <span className="text-[10px] text-slate-400">Ctrl + V do WhatsApp, Moodle ou PDF</span>
+                  </div>
+
+                  <textarea
+                    rows={4}
+                    value={pastedText}
+                    onChange={(e) => setPastedText(e.target.value)}
+                    placeholder={`Cole aqui o texto copiado da sua faculdade. Exemplo:\n# Engenharia de Software\n- P1: 2026-11-10\n- P2: 2026-12-08\n- Padrões de Projeto GoF\n- Arquitetura Hexagonal`}
+                    className="w-full text-xs p-3.5 rounded-2xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-indigo-500 font-mono focus:outline-hidden resize-none"
+                  />
+
+                  <div className="flex justify-end">
+                    <button
+                      disabled={!pastedText.trim() || isImporting}
+                      onClick={async () => {
+                        if (!pastedText.trim()) return;
+                        setIsImporting(true);
+                        setImportStatusMessage('Analisando texto colado...');
+                        try {
+                          let result = parseStudyDocument(pastedText, 'texto-colado.txt');
+                          if (result.createdSubjects.length > 0) {
+                            await db.subjects.bulkAdd(result.createdSubjects);
+                            for (const s of result.createdSubjects) {
+                              await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
+                            }
+                          }
+                          if (result.createdTasks.length > 0) await db.tasks.bulkAdd(result.createdTasks);
+                          if (result.createdTracks.length > 0) await db.learningPaths.bulkAdd(result.createdTracks);
+
+                          setPastedText('');
+                          triggerVictoryEffect();
+                          alert(result.summary);
+                        } catch (err: any) {
+                          alert(`Erro ao processar texto: ${err.message || err}`);
+                        } finally {
+                          setIsImporting(false);
+                          setImportStatusMessage('');
+                        }
                       }}
-                    />
-                  </label>
+                      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-xs transition active:scale-95"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      Processar Texto Colado
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

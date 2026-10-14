@@ -39,4 +39,49 @@ Disciplina: Arquitetura de Computadores
     expect(result.createdTracks[0].modules[0].items[2].type).toBe('exercise');
     expect(result.createdTracks[0].modules[0].items[3].type).toBe('project');
   });
+
+  it('extrai eventos de arquivos iCalendar (.ics)', () => {
+    const icsContent = `
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Google Inc//Google Calendar 70.9054//EN
+BEGIN:VEVENT
+DTSTART:20261120T190000Z
+SUMMARY:P1 - Redes de Computadores
+DESCRIPTION:Prova no laboratório 3
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20261205T200000Z
+SUMMARY:P2 - Redes de Computadores
+DESCRIPTION:Entrega de topologia
+END:VEVENT
+END:VCALENDAR
+    `;
+
+    const result = parseStudyDocument(icsContent, 'calendario-provas.ics');
+
+    expect(result.detectedType).toBe('calendar');
+    expect(result.createdSubjects.length).toBe(1);
+    expect(result.createdSubjects[0].name).toBe('Redes de Computadores');
+    expect(result.createdTasks.length).toBe(2);
+    expect(result.createdTasks[0].dueDate).toBe('2026-11-20');
+    expect(result.createdTasks[0].title).toBe('P1');
+  });
+
+  it('extrai matérias e ementas de arquivo JSON', () => {
+    const jsonContent = JSON.stringify({
+      name: 'Inteligência Artificial',
+      deadline: '2026-12-01',
+      exams: [{ title: 'Exame Final', date: '2026-12-01' }],
+      topics: ['Busca em Grafos', 'Redes Neurais', 'Algoritmos Genéticos'],
+    });
+
+    const result = parseStudyDocument(jsonContent, 'ementa.json');
+
+    expect(result.createdSubjects.length).toBe(1);
+    expect(result.createdSubjects[0].name).toBe('Inteligência Artificial');
+    expect(result.createdTasks.length).toBe(1);
+    expect(result.createdTracks.length).toBe(1);
+    expect(result.createdTracks[0].modules[0].items.length).toBe(3);
+  });
 });
