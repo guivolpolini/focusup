@@ -67,6 +67,11 @@ import {
 import { calculateGamification } from './lib/gamification';
 import { generateWeeklyReviewAnalysis } from './lib/weeklyReviewEngine';
 import { parseStudyDocument, getMauaDefaultData, type ParsedDocumentResult } from './lib/documentParser';
+import {
+  deduplicateSubjectsList,
+  cleanAndDeduplicateDatabaseSubjects,
+  remapImportedSubjectsWithExisting,
+} from './lib/subjectEngine';
 import { extractTextFromPDF } from './lib/pdfParser';
 import { extractTextFromImage } from './lib/ocrParser';
 import { parseWithFreeLLM } from './lib/freellmClient';
@@ -85,6 +90,7 @@ import type {
   WeeklyReview,
   SubjectGradeConfig,
   Assessment,
+  Subject,
 } from './types';
 
 export function App() {
@@ -152,10 +158,13 @@ export function App() {
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>('default');
   const [notifiedSessionStart, setNotifiedSessionStart] = useState<number | null>(null);
 
-  // Inicialização das sementes
+  // Inicialização das sementes e saneamento de duplicatas
   useEffect(() => {
-    seedInitialData();
-    setNotifPermission(getNotificationPermissionStatus());
+    (async () => {
+      await seedInitialData();
+      await cleanAndDeduplicateDatabaseSubjects();
+      setNotifPermission(getNotificationPermissionStatus());
+    })();
   }, []);
 
   // Loop de relógio para UI do Timer
@@ -285,11 +294,27 @@ export function App() {
   const handleLoadMauaData = async () => {
     try {
       const data = getMauaDefaultData();
-      await db.subjects.bulkPut(data.subjects);
-      const gradeConfigs = data.subjects.map((s) => createDefaultGradeConfig(s.id, 6.0));
+      const existing = await db.subjects.toArray();
+      const parsedMock: ParsedDocumentResult = {
+        detectedType: 'timetable',
+        createdSubjects: data.subjects,
+        createdClassSchedules: data.classes,
+        createdTasks: [],
+        createdTracks: data.tracks,
+        summary: 'Mauá',
+      };
+      const remapped = remapImportedSubjectsWithExisting(existing, parsedMock);
+
+      await db.subjects.bulkPut(remapped.createdSubjects);
+      const gradeConfigs = remapped.createdSubjects.map((s: Subject) => createDefaultGradeConfig(s.id, 6.0));
       await db.subjectGrades.bulkPut(gradeConfigs);
-      await db.collegeClasses.bulkPut(data.classes);
-      await db.learningPaths.bulkPut(data.tracks);
+      if (remapped.createdClassSchedules && remapped.createdClassSchedules.length > 0) {
+        await db.collegeClasses.bulkPut(remapped.createdClassSchedules);
+      }
+      if (remapped.createdTracks.length > 0) {
+        await db.learningPaths.bulkPut(remapped.createdTracks);
+      }
+      await cleanAndDeduplicateDatabaseSubjects();
       triggerVictoryEffect();
       setCollegeSubTab('timetable');
     } catch (err: any) {
@@ -1579,19 +1604,43 @@ export function App() {
                 </div>
 
                 {/* Disciplinas Cadastradas com Notas */}
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-slate-900 text-sm">Disciplinas do Semestre & Situação Acadêmica</h3>
-                    <span className="text-xs text-slate-400 font-medium">
-                      {subjects.filter((s) => s.category === 'college' || !s.category).length} disciplinas
-                    </span>
-                  </div>
+                {(() => {
+                  const hasCollege = subjects.some((s) => s.category === 'college');
+                  const rawList = hasCollege
+                    ? subjects.filter((s) => s.category === 'college')
+                    : subjects.filter((s) => !s.category);
+                  const collegeDisciplines = deduplicateSubjectsList(rawList);
 
-                  {subjects.filter((s) => s.category === 'college' || !s.category).length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {subjects
-                        .filter((s) => s.category === 'college' || !s.category)
-                        .map((colSub) => {
+                  return (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-bold text-slate-900 text-sm">Disciplinas do Semestre & Situação Acadêmica</h3>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400 font-medium">
+                            {collegeDisciplines.length} disciplinas
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const res = await cleanAndDeduplicateDatabaseSubjects();
+                              if (res.mergedCount > 0) {
+                                triggerVictoryEffect();
+                                alert(`${res.mergedCount} matéria(s) duplicada(s) foram unificadas no banco de dados!`);
+                              } else {
+                                alert('Nenhuma matéria duplicada encontrada.');
+                              }
+                            }}
+                            className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition"
+                            title="Unificar matérias repetidas"
+                          >
+                            Unificar Duplicadas
+                          </button>
+                        </div>
+                      </div>
+
+                      {collegeDisciplines.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {collegeDisciplines.map((colSub) => {
                           const collegeTasks = tasks.filter((t) => t.subjectId === colSub.id);
                           const completedTasks = collegeTasks.filter((t) => t.status === 'completed');
 
@@ -1748,6 +1797,8 @@ export function App() {
                     </div>
                   )}
                 </div>
+              );
+            })()}
               </div>
             )}
 
@@ -2674,30 +2725,35 @@ export function App() {
                       }
                       onClick={async () => {
                         try {
-                          if (pendingImportResult.createdSubjects.length > 0) {
-                            const subsToSave = pendingImportResult.createdSubjects.map((s) => ({
+                          const existingSubs = await db.subjects.toArray();
+                          const remapped = remapImportedSubjectsWithExisting(existingSubs, pendingImportResult);
+
+                          if (remapped.createdSubjects.length > 0) {
+                            const subsToSave = remapped.createdSubjects.map((s: Subject) => ({
                               ...s,
                               category: 'college' as const,
                               archived: false,
                             }));
                             await db.subjects.bulkPut(subsToSave);
 
-                            const gradeConfigs = subsToSave.map((s) => createDefaultGradeConfig(s.id, 6.0));
+                            const gradeConfigs = subsToSave.map((s: Subject) => createDefaultGradeConfig(s.id, 6.0));
                             await db.subjectGrades.bulkPut(gradeConfigs);
                           }
-                          if (pendingImportResult.createdClassSchedules && pendingImportResult.createdClassSchedules.length > 0) {
-                            await db.collegeClasses.bulkPut(pendingImportResult.createdClassSchedules);
+                          if (remapped.createdClassSchedules && remapped.createdClassSchedules.length > 0) {
+                            await db.collegeClasses.bulkPut(remapped.createdClassSchedules);
                           }
-                          if (pendingImportResult.createdTasks.length > 0) {
-                            await db.tasks.bulkPut(pendingImportResult.createdTasks);
+                          if (remapped.createdTasks.length > 0) {
+                            await db.tasks.bulkPut(remapped.createdTasks);
                           }
-                          if (pendingImportResult.createdTracks.length > 0) {
-                            await db.learningPaths.bulkPut(pendingImportResult.createdTracks);
+                          if (remapped.createdTracks.length > 0) {
+                            await db.learningPaths.bulkPut(remapped.createdTracks);
                           }
+
+                          await cleanAndDeduplicateDatabaseSubjects();
 
                           triggerVictoryEffect();
                           const targetTab =
-                            pendingImportResult.createdClassSchedules && pendingImportResult.createdClassSchedules.length > 0
+                            remapped.createdClassSchedules && remapped.createdClassSchedules.length > 0
                               ? 'timetable'
                               : 'disciplines';
                           setPendingImportResult(null);
