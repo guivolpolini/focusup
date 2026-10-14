@@ -287,9 +287,15 @@ export async function seedInitialData() {
   }
 
   // Semente da Seção Academia (Exercícios e Fichas Padrão)
+  await seedGymInitialData(false);
+}
+
+export async function seedGymInitialData(force = false) {
   const now = Date.now();
   const gymExerciseCount = await db.gymExercises.count();
-  if (gymExerciseCount === 0) {
+  const gymRoutineCount = await db.gymRoutines.count();
+
+  if (gymExerciseCount === 0 || force) {
     const defaultExercises: GymExercise[] = [
       // Peito
       { id: 'ex-supino-reto', name: 'Supino Reto com Barra', muscleGroup: 'peito', equipment: 'Barra', isFavorite: true, isCustom: false, instructions: 'Mantenha os pés firmes no chão, desça a barra até o meio do peito e empurre estendendo os braços.', createdAt: now, updatedAt: now },
@@ -331,8 +337,10 @@ export async function seedInitialData() {
       { id: 'ex-prancha-abdominal', name: 'Prancha Abdominal Isométrica', muscleGroup: 'abdomen', equipment: 'Peso Corporal', isFavorite: false, isCustom: false, instructions: 'Corpo alinhado e abdômen contraído durante o tempo determinado.', createdAt: now, updatedAt: now },
       { id: 'ex-abdominal-infra', name: 'Abdominal Infra Suspenso na Barra', muscleGroup: 'abdomen', equipment: 'Peso Corporal', isFavorite: false, isCustom: false, instructions: 'Eleve os joelhos em direção ao peito sem balançar o corpo.', createdAt: now, updatedAt: now },
     ];
-    await db.gymExercises.bulkAdd(defaultExercises);
+    await db.gymExercises.bulkPut(defaultExercises);
+  }
 
+  if (gymRoutineCount === 0 || force) {
     // Fichas Iniciais (Divisão ABC Clássica)
     const defaultRoutines: GymRoutine[] = [
       {
@@ -393,7 +401,7 @@ export async function seedInitialData() {
         updatedAt: now,
       },
     ];
-    await db.gymRoutines.bulkAdd(defaultRoutines);
+    await db.gymRoutines.bulkPut(defaultRoutines);
 
     const defaultGymPreferences: GymPreferences = {
       id: 'gym_preferences',
@@ -408,6 +416,6 @@ export async function seedInitialData() {
       defaultRestSeconds: 90,
       updatedAt: now,
     };
-    await db.gymPreferences.add(defaultGymPreferences);
+    await db.gymPreferences.put(defaultGymPreferences);
   }
 }

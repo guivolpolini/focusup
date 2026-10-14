@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import {
   Dumbbell,
@@ -21,9 +21,10 @@ import {
   Star,
   ArrowUp,
   ArrowDown,
+  Sparkles,
 } from 'lucide-react';
 
-import { db } from '../lib/db';
+import { db, seedGymInitialData } from '../lib/db';
 import type {
   GymExercise,
   GymRoutine,
@@ -114,6 +115,20 @@ export function GymSection({
     exercises[0]?.id || 'ex-supino-reto'
   );
 
+  // Sincronizar PR selecionado caso a lista de exercícios carregue depois
+  useEffect(() => {
+    if (exercises.length > 0 && !exercises.some((e) => e.id === selectedPRExerciseId)) {
+      setSelectedPRExerciseId(exercises[0].id);
+    }
+  }, [exercises, selectedPRExerciseId]);
+
+  // Se o banco estiver zerado (ex: upgrade de versão), garantir dados semente
+  useEffect(() => {
+    if (exercises.length === 0 && routines.length === 0) {
+      seedGymInitialData(false);
+    }
+  }, [exercises.length, routines.length]);
+
   // Loop de relógio para cronômetros
   useEffect(() => {
     const interval = setInterval(() => {
@@ -137,7 +152,8 @@ export function GymSection({
     return calculateGymWeeklyStats(workouts, weeklyGoal);
   }, [workouts, weeklyGoal]);
 
-  // Alerta de término de descanso
+  // Alerta de término de descanso (evitando notificações repetidas no mesmo timestamp)
+  const notifiedTimerRef = useRef<number | null>(null);
   useEffect(() => {
     if (
       activeWorkout?.currentRestTimer &&
@@ -148,7 +164,8 @@ export function GymSection({
         activeWorkout.currentRestTimer.durationSeconds,
         now
       );
-      if (remaining === 0) {
+      if (remaining === 0 && notifiedTimerRef.current !== activeWorkout.currentRestTimer.startedAt) {
+        notifiedTimerRef.current = activeWorkout.currentRestTimer.startedAt;
         sendLocalNotification('Descanso Finalizado! ⚡ FocusUp Academia', {
           body: `Hora da próxima série de ${activeWorkout.currentRestTimer.targetExerciseName || 'exercício'}!`,
           tag: 'gym-rest-done',
@@ -156,6 +173,29 @@ export function GymSection({
       }
     }
   }, [now, activeWorkout]);
+
+  // Helper para abrir modal de criação de nova ficha limpa
+  const handleOpenNewRoutineModal = () => {
+    setEditingRoutine({
+      id: `routine-${Date.now()}`,
+      name: 'Novo Treino',
+      splitCategory: 'Personalizado',
+      description: '',
+      muscleGroups: [],
+      exercises: [],
+      defaultRestSeconds: 90,
+      isArchived: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    setIsCreatingRoutine(true);
+  };
+
+  // Helper para editar ficha existente de forma isolada
+  const handleEditRoutine = (routine: GymRoutine) => {
+    setEditingRoutine(JSON.parse(JSON.stringify(routine)));
+    setIsCreatingRoutine(true);
+  };
 
   // Disparar confetes ao bater meta ou finalizar treino
   const triggerVictory = () => {
@@ -223,6 +263,11 @@ export function GymSection({
     if (!activeWorkout) return;
 
     const { totalVolumeKg, totalSetsCompleted } = calculateWorkoutVolume(activeWorkout.exercises);
+    if (totalSetsCompleted === 0) {
+      if (!confirm('Nenhuma série foi marcada como concluída neste treino. Deseja finalizar e registrar a sessão mesmo assim?')) {
+        return;
+      }
+    }
     const durationMinutes = Math.max(1, Math.round((Date.now() - activeWorkout.startedAt) / (1000 * 60)));
 
     const completedWorkout: GymWorkout = {
@@ -302,7 +347,7 @@ export function GymSection({
             </button>
           ) : (
             <button
-              onClick={() => setIsCreatingRoutine(true)}
+              onClick={handleOpenNewRoutineModal}
               className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-3 rounded-2xl shadow-sm transition active:scale-95 text-xs"
             >
               <Plus className="w-4 h-4" />
@@ -457,7 +502,7 @@ export function GymSection({
                 <p className="text-xs text-slate-500">Escolha uma ficha para iniciar sua sessão ou configure novos exercícios.</p>
               </div>
               <button
-                onClick={() => setIsCreatingRoutine(true)}
+                onClick={handleOpenNewRoutineModal}
                 className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl transition"
               >
                 + Nova Ficha
@@ -495,10 +540,7 @@ export function GymSection({
                           Iniciar Treino
                         </button>
                         <button
-                          onClick={() => {
-                            setEditingRoutine(r);
-                            setActiveSubTab('routines');
-                          }}
+                          onClick={() => handleEditRoutine(r)}
                           className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-xl border border-slate-200 transition"
                           title="Editar ficha"
                         >
@@ -515,18 +557,31 @@ export function GymSection({
                 <p className="text-xs text-slate-400 max-w-sm mx-auto">
                   Crie sua primeira ficha de treino personalizada ou explore a biblioteca de exercícios.
                 </p>
-                <button
-                  onClick={() => setIsCreatingRoutine(true)}
-                  className="bg-indigo-600 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-xs hover:bg-indigo-700 transition"
-                >
-                  Criar Ficha de Treino
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  <button
+                    onClick={handleOpenNewRoutineModal}
+                    className="bg-indigo-600 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-xs hover:bg-indigo-700 transition"
+                  >
+                    Criar Ficha de Treino
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await seedGymInitialData(true);
+                      triggerVictory();
+                    }}
+                    className="bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-bold text-xs px-4 py-2 rounded-xl shadow-2xs transition inline-flex items-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Carregar Divisão ABC Padrão
+                  </button>
+                </div>
               </div>
             )}
           </div>
         </div>
       )}
 
+      {/* ========================================================================= */}
       {/* ========================================================================= */}
       {/* SUB-ABA 2: FICHAS DE TREINO (GERENCIADOR)                                 */}
       {/* ========================================================================= */}
@@ -538,21 +593,7 @@ export function GymSection({
               <p className="text-xs text-slate-500">Crie, duplique, edite ou organize a ordem dos exercícios.</p>
             </div>
             <button
-              onClick={() => {
-                setEditingRoutine({
-                  id: `routine-${Date.now()}`,
-                  name: 'Novo Treino',
-                  splitCategory: 'Personalizado',
-                  description: '',
-                  muscleGroups: [],
-                  exercises: [],
-                  defaultRestSeconds: 90,
-                  isArchived: false,
-                  createdAt: Date.now(),
-                  updatedAt: Date.now(),
-                });
-                setIsCreatingRoutine(true);
-              }}
+              onClick={handleOpenNewRoutineModal}
               className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-2xl shadow-xs transition active:scale-95"
             >
               <Plus className="w-4 h-4" /> Nova Ficha
@@ -560,314 +601,121 @@ export function GymSection({
           </div>
 
           {/* Lista de Fichas Existentes */}
-          <div className="space-y-4">
-            {routines.map((routine) => (
-              <div
-                key={routine.id}
-                className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-4"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-md border border-indigo-100">
-                        {routine.splitCategory || 'Geral'}
-                      </span>
-                      <h4 className="font-black text-slate-900 text-base">{routine.name}</h4>
-                    </div>
-                    {routine.description && (
-                      <p className="text-xs text-slate-500 mt-1">{routine.description}</p>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => startWorkoutFromRoutine(routine)}
-                      className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-xs transition active:scale-95"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" /> Iniciar
-                    </button>
-                    <button
-                      onClick={() => {
-                        setEditingRoutine(routine);
-                        setIsCreatingRoutine(true);
-                      }}
-                      className="p-2 text-slate-500 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 transition"
-                      title="Editar ficha"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={async () => {
-                        // Duplicar ficha
-                        const duplicated: GymRoutine = {
-                          ...routine,
-                          id: `routine-${Date.now()}`,
-                          name: `${routine.name} (Cópia)`,
-                          createdAt: Date.now(),
-                          updatedAt: Date.now(),
-                        };
-                        await db.gymRoutines.add(duplicated);
-                        triggerVictory();
-                      }}
-                      className="p-2 text-slate-500 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 transition"
-                      title="Duplicar ficha"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={async () => {
-                        if (confirm(`Deseja remover a ficha "${routine.name}"?`)) {
-                          await db.gymRoutines.delete(routine.id);
-                        }
-                      }}
-                      className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 rounded-xl border border-slate-200 transition"
-                      title="Excluir ficha"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Lista de Exercícios da Ficha */}
-                <div className="space-y-2 border-t border-slate-100 pt-3">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Exercícios ({routine.exercises.length}):
-                  </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                    {routine.exercises.map((ex, idx) => (
-                      <div
-                        key={ex.id || idx}
-                        className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs flex items-center justify-between"
-                      >
-                        <div className="truncate pr-2">
-                          <span className="text-slate-400 font-mono text-[10px] mr-1.5">{idx + 1}.</span>
-                          <span className="font-bold text-slate-800">{ex.name}</span>
-                          <div className="text-[10px] text-slate-400">
-                            {ex.targetSets} séries • {ex.targetReps} reps • {ex.defaultRestSeconds}s rest
-                          </div>
-                        </div>
+          {routines.length > 0 ? (
+            <div className="space-y-4">
+              {routines.map((routine) => (
+                <div
+                  key={routine.id}
+                  className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-4"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-md border border-indigo-100">
+                          {routine.splitCategory || 'Geral'}
+                        </span>
+                        <h4 className="font-black text-slate-900 text-base">{routine.name}</h4>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+                      {routine.description && (
+                        <p className="text-xs text-slate-500 mt-1">{routine.description}</p>
+                      )}
+                    </div>
 
-          {/* Modal / Formulário de Criação ou Edição de Ficha */}
-          {isCreatingRoutine && editingRoutine && (
-            <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-              <div className="bg-white max-w-2xl w-full rounded-3xl p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-black text-slate-900 text-base">
-                    {routines.some((r) => r.id === editingRoutine.id) ? 'Editar Ficha de Treino' : 'Nova Ficha de Treino'}
-                  </h3>
-                  <button
-                    onClick={() => {
-                      setIsCreatingRoutine(false);
-                      setEditingRoutine(null);
-                    }}
-                    className="text-slate-400 hover:text-slate-700 font-black text-lg p-1"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  <div>
-                    <label className="font-bold text-slate-700 block mb-1">Nome da Ficha</label>
-                    <input
-                      type="text"
-                      value={editingRoutine.name}
-                      onChange={(e) => setEditingRoutine({ ...editingRoutine, name: e.target.value })}
-                      placeholder="Ex: Treino A - Peito e Tríceps"
-                      className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 font-bold text-slate-900 focus:bg-white focus:outline-hidden"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-bold text-slate-700 block mb-1">Divisão / Categoria</label>
-                    <input
-                      type="text"
-                      value={editingRoutine.splitCategory || ''}
-                      onChange={(e) => setEditingRoutine({ ...editingRoutine, splitCategory: e.target.value })}
-                      placeholder="Ex: ABC, ABCD, Push, Pull"
-                      className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 focus:bg-white focus:outline-hidden"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="font-bold text-slate-700 block mb-1">Descrição / Foco</label>
-                    <input
-                      type="text"
-                      value={editingRoutine.description || ''}
-                      onChange={(e) => setEditingRoutine({ ...editingRoutine, description: e.target.value })}
-                      placeholder="Ex: Foco em empurrar, peitoral e deltoides."
-                      className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 focus:bg-white focus:outline-hidden"
-                    />
-                  </div>
-                </div>
-
-                {/* Lista de Exercícios na Ficha com Reordenação */}
-                <div className="space-y-3 pt-2 border-t border-slate-100">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-black text-slate-800">Exercícios da Ficha</label>
-                    <span className="text-[10px] text-slate-400">Arraste ou use as setas para ordenar</span>
-                  </div>
-
-                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                    {editingRoutine.exercises.map((ex, idx) => (
-                      <div
-                        key={ex.id || idx}
-                        className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between gap-2"
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => startWorkoutFromRoutine(routine)}
+                        className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-xs transition active:scale-95"
                       >
-                        <div className="flex items-center gap-2">
-                          <div className="flex flex-col gap-0.5">
-                            <button
-                              disabled={idx === 0}
-                              onClick={() => {
-                                const newExs = [...editingRoutine.exercises];
-                                const temp = newExs[idx - 1];
-                                newExs[idx - 1] = newExs[idx];
-                                newExs[idx] = temp;
-                                setEditingRoutine({ ...editingRoutine, exercises: newExs });
-                              }}
-                              className="text-slate-400 hover:text-slate-800 disabled:opacity-20"
-                            >
-                              <ArrowUp className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              disabled={idx === editingRoutine.exercises.length - 1}
-                              onClick={() => {
-                                const newExs = [...editingRoutine.exercises];
-                                const temp = newExs[idx + 1];
-                                newExs[idx + 1] = newExs[idx];
-                                newExs[idx] = temp;
-                                setEditingRoutine({ ...editingRoutine, exercises: newExs });
-                              }}
-                              className="text-slate-400 hover:text-slate-800 disabled:opacity-20"
-                            >
-                              <ArrowDown className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                          <div>
-                            <div className="font-bold text-slate-900 text-xs">{ex.name}</div>
-                            <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
-                              <span>Séries:</span>
-                              <input
-                                type="number"
-                                min={1}
-                                max={10}
-                                value={ex.targetSets}
-                                onChange={(e) => {
-                                  const newExs = [...editingRoutine.exercises];
-                                  newExs[idx] = { ...ex, targetSets: Number(e.target.value) || 3 };
-                                  setEditingRoutine({ ...editingRoutine, exercises: newExs });
-                                }}
-                                className="w-12 p-0.5 bg-white border border-slate-200 rounded text-center font-bold"
-                              />
-                              <span>Reps:</span>
-                              <input
-                                type="text"
-                                value={ex.targetReps}
-                                onChange={(e) => {
-                                  const newExs = [...editingRoutine.exercises];
-                                  newExs[idx] = { ...ex, targetReps: e.target.value };
-                                  setEditingRoutine({ ...editingRoutine, exercises: newExs });
-                                }}
-                                className="w-16 p-0.5 bg-white border border-slate-200 rounded text-center font-bold"
-                              />
-                              <span>Descanso:</span>
-                              <input
-                                type="number"
-                                value={ex.defaultRestSeconds}
-                                onChange={(e) => {
-                                  const newExs = [...editingRoutine.exercises];
-                                  newExs[idx] = { ...ex, defaultRestSeconds: Number(e.target.value) || 60 };
-                                  setEditingRoutine({ ...editingRoutine, exercises: newExs });
-                                }}
-                                className="w-14 p-0.5 bg-white border border-slate-200 rounded text-center font-bold"
-                              />
-                              <span>s</span>
+                        <Play className="w-3.5 h-3.5 fill-current" /> Iniciar
+                      </button>
+                      <button
+                        onClick={() => handleEditRoutine(routine)}
+                        className="p-2 text-slate-500 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 transition"
+                        title="Editar ficha"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          // Duplicar ficha
+                          const duplicated: GymRoutine = {
+                            ...routine,
+                            id: `routine-${Date.now()}`,
+                            name: `${routine.name} (Cópia)`,
+                            createdAt: Date.now(),
+                            updatedAt: Date.now(),
+                          };
+                          await db.gymRoutines.add(duplicated);
+                          triggerVictory();
+                        }}
+                        className="p-2 text-slate-500 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 transition"
+                        title="Duplicar ficha"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (confirm(`Deseja remover a ficha "${routine.name}"?`)) {
+                            await db.gymRoutines.delete(routine.id);
+                          }
+                        }}
+                        className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 rounded-xl border border-slate-200 transition"
+                        title="Excluir ficha"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Lista de Exercícios da Ficha */}
+                  <div className="space-y-2 border-t border-slate-100 pt-3">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Exercícios ({routine.exercises.length}):
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                      {routine.exercises.map((ex, idx) => (
+                        <div
+                          key={ex.id || idx}
+                          className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs flex items-center justify-between"
+                        >
+                          <div className="truncate pr-2">
+                            <span className="text-slate-400 font-mono text-[10px] mr-1.5">{idx + 1}.</span>
+                            <span className="font-bold text-slate-800">{ex.name}</span>
+                            <div className="text-[10px] text-slate-400">
+                              {ex.targetSets} séries • {ex.targetReps} reps • {ex.defaultRestSeconds}s rest
                             </div>
                           </div>
                         </div>
-
-                        <button
-                          onClick={() => {
-                            const newExs = editingRoutine.exercises.filter((_, i) => i !== idx);
-                            setEditingRoutine({ ...editingRoutine, exercises: newExs });
-                          }}
-                          className="text-slate-400 hover:text-rose-600 p-1.5"
-                          title="Remover da ficha"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Adicionar Exercício da Biblioteca à Ficha */}
-                  <div className="p-3 bg-indigo-50/60 rounded-2xl border border-indigo-100 space-y-2">
-                    <span className="text-[11px] font-bold text-indigo-900 block">
-                      + Adicionar Exercício da Biblioteca:
-                    </span>
-                    <select
-                      onChange={(e) => {
-                        const chosen = exercises.find((ex) => ex.id === e.target.value);
-                        if (!chosen) return;
-                        const newRoutineEx: GymRoutineExercise = {
-                          id: `re-${Date.now()}`,
-                          exerciseId: chosen.id,
-                          name: chosen.name,
-                          muscleGroup: chosen.muscleGroup,
-                          targetSets: 3,
-                          targetReps: '10-12',
-                          defaultRestSeconds: 90,
-                          targetWeightKg: 0,
-                        };
-                        setEditingRoutine({
-                          ...editingRoutine,
-                          exercises: [...editingRoutine.exercises, newRoutineEx],
-                        });
-                        e.target.value = '';
-                      }}
-                      className="w-full text-xs p-2.5 bg-white border border-indigo-200 rounded-xl font-bold text-slate-800 focus:outline-hidden"
-                    >
-                      <option value="">Selecione um exercício para incluir...</option>
-                      {exercises.map((ex) => (
-                        <option key={ex.id} value={ex.id}>
-                          {ex.name} ({ex.muscleGroup} • {ex.equipment})
-                        </option>
                       ))}
-                    </select>
+                    </div>
                   </div>
                 </div>
-
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                  <button
-                    onClick={() => {
-                      setIsCreatingRoutine(false);
-                      setEditingRoutine(null);
-                    }}
-                    className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!editingRoutine.name.trim()) {
-                        alert('Informe o nome da ficha.');
-                        return;
-                      }
-                      await db.gymRoutines.put({ ...editingRoutine, updatedAt: Date.now() });
-                      setIsCreatingRoutine(false);
-                      setEditingRoutine(null);
-                      triggerVictory();
-                    }}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow-xs transition active:scale-95"
-                  >
-                    Salvar Ficha
-                  </button>
-                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-10 text-center bg-white rounded-3xl border border-dashed border-slate-200 space-y-4">
+              <Dumbbell className="w-12 h-12 text-slate-300 mx-auto" />
+              <h4 className="font-extrabold text-slate-800 text-sm">Nenhuma ficha encontrada</h4>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                Monte sua ficha personalizada com exercícios e descanso ou restaure a divisão ABC clássica completa.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                <button
+                  onClick={handleOpenNewRoutineModal}
+                  className="bg-indigo-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs hover:bg-indigo-700 transition"
+                >
+                  + Criar Nova Ficha
+                </button>
+                <button
+                  onClick={async () => {
+                    await seedGymInitialData(true);
+                    triggerVictory();
+                  }}
+                  className="bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-bold text-xs px-4 py-2.5 rounded-xl shadow-2xs transition inline-flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  Carregar Divisão ABC Padrão
+                </button>
               </div>
             </div>
           )}
@@ -1014,24 +862,38 @@ export function GymSection({
                         <span className="text-[10px] font-mono text-slate-400 capitalize">({ex.muscleGroup})</span>
                       </div>
 
-                      <button
-                        onClick={() => {
-                          // Adicionar série extra neste exercício
-                          const newExercises = [...activeWorkout.exercises];
-                          const lastSet = ex.sets[ex.sets.length - 1];
-                          newExercises[exIdx].sets.push({
-                            setNumber: ex.sets.length + 1,
-                            weightKg: lastSet?.weightKg || 0,
-                            reps: lastSet?.reps || 10,
-                            completed: false,
-                            restSeconds: lastSet?.restSeconds || 90,
-                          });
-                          setActiveWorkout({ ...activeWorkout, exercises: newExercises });
-                        }}
-                        className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition"
-                      >
-                        + Série Extra
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            // Adicionar série extra neste exercício
+                            const newExercises = [...activeWorkout.exercises];
+                            const lastSet = ex.sets[ex.sets.length - 1];
+                            newExercises[exIdx].sets.push({
+                              setNumber: ex.sets.length + 1,
+                              weightKg: lastSet?.weightKg || 0,
+                              reps: lastSet?.reps || 10,
+                              completed: false,
+                              restSeconds: lastSet?.restSeconds || 90,
+                            });
+                            setActiveWorkout({ ...activeWorkout, exercises: newExercises });
+                          }}
+                          className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition"
+                        >
+                          + Série Extra
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Remover "${ex.name}" deste treino?`)) {
+                              const newExercises = activeWorkout.exercises.filter((_, idx) => idx !== exIdx);
+                              setActiveWorkout({ ...activeWorkout, exercises: newExercises });
+                            }
+                          }}
+                          className="p-1 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 transition"
+                          title="Remover exercício do treino"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Tabela de Séries */}
@@ -1119,6 +981,59 @@ export function GymSection({
                     </div>
                   </div>
                 ))}
+              </div>
+
+              {/* Adicionar Exercício ao Treino em Andamento */}
+              <div className="bg-white p-5 rounded-3xl border border-dashed border-indigo-200 bg-indigo-50/20 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div>
+                  <h4 className="font-extrabold text-slate-900 text-xs">Adicionar Exercício ao Treino</h4>
+                  <p className="text-[11px] text-slate-500">Substitua ou inclua novos exercícios na sessão atual.</p>
+                </div>
+                <select
+                  onChange={(e) => {
+                    const chosen = exercises.find((exItem) => exItem.id === e.target.value);
+                    if (!chosen) return;
+                    const pr = calculateExercisePRs(workouts, chosen.id);
+                    const lastHistory = pr.history[pr.history.length - 1];
+                    const suggestedWeight = lastHistory?.weightKg || 0;
+
+                    const newEx = {
+                      exerciseId: chosen.id,
+                      name: chosen.name,
+                      muscleGroup: chosen.muscleGroup,
+                      sets: [
+                        { setNumber: 1, weightKg: suggestedWeight, reps: 10, completed: false, restSeconds: 90 },
+                        { setNumber: 2, weightKg: suggestedWeight, reps: 10, completed: false, restSeconds: 90 },
+                        { setNumber: 3, weightKg: suggestedWeight, reps: 10, completed: false, restSeconds: 90 },
+                      ],
+                    };
+                    setActiveWorkout({
+                      ...activeWorkout,
+                      exercises: [...activeWorkout.exercises, newEx],
+                    });
+                    e.target.value = '';
+                  }}
+                  className="text-xs p-2.5 bg-white border border-indigo-200 rounded-xl font-bold text-slate-800 focus:outline-hidden"
+                >
+                  <option value="">+ Selecionar Exercício da Biblioteca...</option>
+                  {exercises.map((exItem) => (
+                    <option key={exItem.id} value={exItem.id}>
+                      {exItem.name} ({exItem.muscleGroup})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Observações Opcionais do Treino */}
+              <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-2">
+                <label className="text-xs font-black text-slate-800 block">Observações do Treino (Opcional):</label>
+                <textarea
+                  rows={2}
+                  value={activeWorkout.notes || ''}
+                  onChange={(e) => setActiveWorkout({ ...activeWorkout, notes: e.target.value })}
+                  placeholder="Ex: Treino muito produtivo, progredi carga no supino. Foco excelente."
+                  className="w-full text-xs p-3 bg-slate-50 rounded-2xl border border-slate-200 focus:bg-white focus:outline-hidden resize-none"
+                />
               </div>
             </div>
           ) : (
@@ -1263,7 +1178,33 @@ export function GymSection({
               ))}
           </div>
 
-          {/* Modal / Cadastro de Exercício Customizado */}
+          {exercises.length === 0 && (
+            <div className="p-10 text-center bg-white rounded-3xl border border-dashed border-slate-200 space-y-4">
+              <Dumbbell className="w-12 h-12 text-slate-300 mx-auto" />
+              <h4 className="font-extrabold text-slate-800 text-sm">Biblioteca de exercícios vazia</h4>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                Cadastre seus exercícios próprios ou carregue a biblioteca de musculação completa.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                <button
+                  onClick={() => setShowNewExerciseModal(true)}
+                  className="bg-indigo-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs hover:bg-indigo-700 transition"
+                >
+                  + Cadastrar Exercício
+                </button>
+                <button
+                  onClick={async () => {
+                    await seedGymInitialData(true);
+                    triggerVictory();
+                  }}
+                  className="bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-bold text-xs px-4 py-2.5 rounded-xl shadow-2xs transition inline-flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  Carregar Biblioteca Padrão
+                </button>
+              </div>
+            </div>
+          )}
           {showNewExerciseModal && (
             <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
               <div className="bg-white max-w-md w-full rounded-3xl p-6 shadow-2xl border border-slate-200 space-y-4">
@@ -1911,6 +1852,229 @@ export function GymSection({
                   );
                 })}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Global de Criação ou Edição de Ficha de Treino */}
+      {isCreatingRoutine && editingRoutine && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white max-w-2xl w-full rounded-3xl p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-slate-900 text-base">
+                {routines.some((r) => r.id === editingRoutine.id) ? 'Editar Ficha de Treino' : 'Nova Ficha de Treino'}
+              </h3>
+              <button
+                onClick={() => {
+                  setIsCreatingRoutine(false);
+                  setEditingRoutine(null);
+                }}
+                className="text-slate-400 hover:text-slate-700 font-black text-lg p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Nome da Ficha</label>
+                <input
+                  type="text"
+                  value={editingRoutine.name}
+                  onChange={(e) => setEditingRoutine({ ...editingRoutine, name: e.target.value })}
+                  placeholder="Ex: Treino A - Peito e Tríceps"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 font-bold text-slate-900 focus:bg-white focus:outline-hidden"
+                />
+              </div>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Divisão / Categoria</label>
+                <input
+                  type="text"
+                  value={editingRoutine.splitCategory || ''}
+                  onChange={(e) => setEditingRoutine({ ...editingRoutine, splitCategory: e.target.value })}
+                  placeholder="Ex: ABC, ABCD, Push, Pull"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 focus:bg-white focus:outline-hidden"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="font-bold text-slate-700 block mb-1">Descrição / Foco</label>
+                <input
+                  type="text"
+                  value={editingRoutine.description || ''}
+                  onChange={(e) => setEditingRoutine({ ...editingRoutine, description: e.target.value })}
+                  placeholder="Ex: Foco em empurrar, peitoral e deltoides."
+                  className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 focus:bg-white focus:outline-hidden"
+                />
+              </div>
+            </div>
+
+            {/* Lista de Exercícios na Ficha com Reordenação */}
+            <div className="space-y-3 pt-2 border-t border-slate-100">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-black text-slate-800">Exercícios da Ficha</label>
+                <span className="text-[10px] text-slate-400">Ordene e defina metas de séries e repetições</span>
+              </div>
+
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                {editingRoutine.exercises.map((ex, idx) => (
+                  <div
+                    key={ex.id || idx}
+                    className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between gap-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <button
+                          disabled={idx === 0}
+                          onClick={() => {
+                            const newExs = [...editingRoutine.exercises];
+                            const temp = newExs[idx - 1];
+                            newExs[idx - 1] = newExs[idx];
+                            newExs[idx] = temp;
+                            setEditingRoutine({ ...editingRoutine, exercises: newExs });
+                          }}
+                          className="text-slate-400 hover:text-slate-800 disabled:opacity-20"
+                        >
+                          <ArrowUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          disabled={idx === editingRoutine.exercises.length - 1}
+                          onClick={() => {
+                            const newExs = [...editingRoutine.exercises];
+                            const temp = newExs[idx + 1];
+                            newExs[idx + 1] = newExs[idx];
+                            newExs[idx] = temp;
+                            setEditingRoutine({ ...editingRoutine, exercises: newExs });
+                          }}
+                          className="text-slate-400 hover:text-slate-800 disabled:opacity-20"
+                        >
+                          <ArrowDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div>
+                        <div className="font-bold text-slate-900 text-xs">{ex.name}</div>
+                        <div className="text-[10px] text-slate-400 flex flex-wrap items-center gap-2 mt-0.5">
+                          <span>Séries:</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={10}
+                            value={ex.targetSets}
+                            onChange={(e) => {
+                              const newExs = [...editingRoutine.exercises];
+                              newExs[idx] = { ...ex, targetSets: Number(e.target.value) || 3 };
+                              setEditingRoutine({ ...editingRoutine, exercises: newExs });
+                            }}
+                            className="w-12 p-0.5 bg-white border border-slate-200 rounded text-center font-bold"
+                          />
+                          <span>Reps:</span>
+                          <input
+                            type="text"
+                            value={ex.targetReps}
+                            onChange={(e) => {
+                              const newExs = [...editingRoutine.exercises];
+                              newExs[idx] = { ...ex, targetReps: e.target.value };
+                              setEditingRoutine({ ...editingRoutine, exercises: newExs });
+                            }}
+                            className="w-16 p-0.5 bg-white border border-slate-200 rounded text-center font-bold"
+                          />
+                          <span>Descanso:</span>
+                          <input
+                            type="number"
+                            value={ex.defaultRestSeconds}
+                            onChange={(e) => {
+                              const newExs = [...editingRoutine.exercises];
+                              newExs[idx] = { ...ex, defaultRestSeconds: Number(e.target.value) || 60 };
+                              setEditingRoutine({ ...editingRoutine, exercises: newExs });
+                            }}
+                            className="w-14 p-0.5 bg-white border border-slate-200 rounded text-center font-bold"
+                          />
+                          <span>s</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        const newExs = editingRoutine.exercises.filter((_, i) => i !== idx);
+                        setEditingRoutine({ ...editingRoutine, exercises: newExs });
+                      }}
+                      className="text-slate-400 hover:text-rose-600 p-1.5"
+                      title="Remover da ficha"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Adicionar Exercício da Biblioteca à Ficha */}
+              <div className="p-3 bg-indigo-50/60 rounded-2xl border border-indigo-100 space-y-2">
+                <span className="text-[11px] font-bold text-indigo-900 block">
+                  + Adicionar Exercício da Biblioteca:
+                </span>
+                <select
+                  onChange={(e) => {
+                    const chosen = exercises.find((ex) => ex.id === e.target.value);
+                    if (!chosen) return;
+                    const newRoutineEx: GymRoutineExercise = {
+                      id: `re-${Date.now()}`,
+                      exerciseId: chosen.id,
+                      name: chosen.name,
+                      muscleGroup: chosen.muscleGroup,
+                      targetSets: 3,
+                      targetReps: '10-12',
+                      defaultRestSeconds: 90,
+                      targetWeightKg: 0,
+                    };
+                    setEditingRoutine({
+                      ...editingRoutine,
+                      exercises: [...editingRoutine.exercises, newRoutineEx],
+                    });
+                    e.target.value = '';
+                  }}
+                  className="w-full text-xs p-2.5 bg-white border border-indigo-200 rounded-xl font-bold text-slate-800 focus:outline-hidden"
+                >
+                  <option value="">Selecione um exercício para incluir...</option>
+                  {exercises.map((ex) => (
+                    <option key={ex.id} value={ex.id}>
+                      {ex.name} ({ex.muscleGroup} • {ex.equipment})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                onClick={() => {
+                  setIsCreatingRoutine(false);
+                  setEditingRoutine(null);
+                }}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!editingRoutine.name.trim()) {
+                    alert('Informe o nome da ficha.');
+                    return;
+                  }
+                  const muscleGroups = Array.from(new Set(editingRoutine.exercises.map((e) => e.muscleGroup)));
+                  await db.gymRoutines.put({
+                    ...editingRoutine,
+                    muscleGroups: muscleGroups.length > 0 ? muscleGroups : ['outro'],
+                    updatedAt: Date.now(),
+                  });
+                  setIsCreatingRoutine(false);
+                  setEditingRoutine(null);
+                  triggerVictory();
+                }}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow-xs transition active:scale-95"
+              >
+                Salvar Ficha
+              </button>
             </div>
           </div>
         </div>
