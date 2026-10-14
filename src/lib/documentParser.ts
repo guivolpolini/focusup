@@ -1,10 +1,11 @@
-import type { Subject, Task, LearningPath } from '../types';
+import type { Subject, Task, LearningPath, CollegeClassSchedule } from '../types';
 
 export interface ParsedDocumentResult {
-  detectedType: 'syllabus' | 'calendar' | 'general';
+  detectedType: 'syllabus' | 'calendar' | 'timetable' | 'general';
   createdSubjects: Subject[];
   createdTasks: Task[];
   createdTracks: LearningPath[];
+  createdClassSchedules?: CollegeClassSchedule[];
   rawText?: string;
   summary: string;
 }
@@ -35,7 +36,22 @@ export function parseStudyDocument(content: string, filename: string): ParsedDoc
     }
   }
 
-  // 3. Parser de linhas de texto (com suporte avançado a tabelas, OCR e fotos)
+  // 3. Detectar se é Grade Horária / Quadro de Horários / Legenda de Disciplinas Universitárias (ex: Mauá, USP, etc.)
+  if (
+    /Quadro\s+de\s+hor/i.test(trimmed) ||
+    /LEGENDA/i.test(trimmed) ||
+    /Disciplina\s+Turma/i.test(trimmed) ||
+    /INSTITUTO\s+MAU[AÁ]/i.test(trimmed) ||
+    /(?:CIC|TTI)\d{3,4}/i.test(trimmed)
+  ) {
+    const res = parseCollegeTimetable(trimmed, filename);
+    if (res.createdSubjects.length > 0) {
+      res.rawText = content;
+      return res;
+    }
+  }
+
+  // 4. Parser geral de linhas de texto (com suporte avançado a tabelas, OCR e fotos)
   const res = parseTextLines(content, filename);
   res.rawText = content;
   return res;
@@ -229,6 +245,188 @@ function normalizeDate(rawDateStr: string): string | null {
   return null;
 }
 
+export function parseCollegeTimetable(content: string, filename: string): ParsedDocumentResult {
+  const lines = content.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const now = Date.now();
+
+  const academicDictionary = [
+    { pattern: /ÁLGEBRA\s+LINEAR/i, canonical: 'Álgebra Linear e Geometria Analítica', code: 'CIC205' },
+    { pattern: /TEORIA\s+DA\s+COMPUT/i, canonical: 'Teoria da Computação, Autômatos e Linguagens Formais', code: 'CIC206' },
+    { pattern: /L[ÓO]GICA\s+MATEM[ÁA]TICA/i, canonical: 'Lógica Matemática e Matemática Discreta', code: 'TTI2001' },
+    { pattern: /BANCO\s+DE\s+DADOS/i, canonical: 'Banco de Dados Não Relacionais e Big Data', code: 'TTI204' },
+    { pattern: /ENGENHARIA\s+DE\s+SOFTWARE/i, canonical: 'Engenharia de Software', code: 'TTI205' },
+    { pattern: /C[ÁA]LCULO\s*(?:NUM[ÉE]RICO|[1-4]|I{1,3}|IV)?/i, canonical: 'Cálculo', code: 'CALC' },
+    { pattern: /F[ÍI]SICA\s*(?:TE[ÓO]RICA|[1-4]|I{1,3}|IV)?/i, canonical: 'Física', code: 'FIS' },
+    { pattern: /QU[ÍI]MICA/i, canonical: 'Química', code: 'QUI' },
+    { pattern: /ALGORITMOS/i, canonical: 'Algoritmos e Estruturas de Dados', code: 'AED' },
+    { pattern: /ESTRUTURAS?\s+DE\s+DADOS/i, canonical: 'Estruturas de Dados', code: 'ED' },
+    { pattern: /SISTEMAS\s+OPERACIONAIS/i, canonical: 'Sistemas Operacionais', code: 'SO' },
+    { pattern: /REDES\s+DE\s+COMPUTADORES/i, canonical: 'Redes de Computadores', code: 'REDES' },
+    { pattern: /INTELIG[ÊE]NCIA\s+ARTIFICIAL/i, canonical: 'Inteligência Artificial', code: 'IA' },
+    { pattern: /COMPILADORES/i, canonical: 'Compiladores', code: 'COMP' },
+    { pattern: /SEGURAN[ÇC]A\s+DA\s+INFORMA/i, canonical: 'Segurança da Informação', code: 'SEG' },
+    { pattern: /ARQUITETURA\s+DE\s+COMPUTADORES/i, canonical: 'Arquitetura de Computadores', code: 'AC' },
+    { pattern: /PROBABILIDADE\s+E\s+ESTAT[ÍI]STICA/i, canonical: 'Probabilidade e Estatística', code: 'ESTAT' },
+  ];
+
+  const subjectsMap = new Map<string, Subject>();
+  const codeToSubject = new Map<string, Subject>();
+
+  function isDuplicate(cand: string): boolean {
+    const norm = cand.toLowerCase().replace(/[^a-z0-9]/g, '');
+    for (const key of subjectsMap.keys()) {
+      const normKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (normKey.includes(norm) || norm.includes(normKey)) return true;
+      const cWords = cand.toLowerCase().split(/\s+/).filter((w) => w.length >= 4);
+      const kWords = key.toLowerCase().split(/\s+/).filter((w) => w.length >= 4);
+      if (cWords.filter((w) => kWords.includes(w)).length >= 2) return true;
+    }
+    return false;
+  }
+
+  function addSubject(name: string, code?: string): Subject | undefined {
+    if (isDuplicate(name)) return;
+    const colors = ['#4f46e5', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
+    const color = colors[subjectsMap.size % colors.length];
+    const sub: Subject = {
+      id: `sub-col-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      name,
+      color,
+      priority: 'high',
+      category: 'college',
+      targetMinutesPerWeek: 180,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    subjectsMap.set(name, sub);
+    if (code) {
+      codeToSubject.set(code.toUpperCase(), sub);
+    }
+    return sub;
+  }
+
+  // 1. Passada no dicionário acadêmico
+  for (const line of lines) {
+    for (const item of academicDictionary) {
+      if (item.pattern.test(line)) {
+        if (!subjectsMap.has(item.canonical)) {
+          addSubject(item.canonical, item.code);
+        }
+      }
+    }
+  }
+
+  // 2. Extração genérica de LEGENDA ou linhas da tabela de matérias
+  let inLegend = false;
+  for (const line of lines) {
+    if (/LEGENDA/i.test(line) || /Disciplina.*(?:Turma|Descrição)/i.test(line)) {
+      inLegend = true;
+      continue;
+    }
+    if (inLegend) {
+      if (/Quadro|Aluno|Período|Horário/i.test(line)) {
+        inLegend = false;
+        continue;
+      }
+
+      let clean = line
+        .replace(/^[-\[\]—•*~|]+/, '')
+        .replace(/^(?:cos|cs|cics|town|tm|mm|tien|tos|tmos|disc|sub\d?|sur|turma|\d{1,2}|[A-Z0-9\/]{3,15})\s+/i, '')
+        .replace(/^(?:cos|cs|cics|town|tm|mm|tien|tos|tmos|disc|sub\d?|sur|turma|\d{1,2}|[A-Z0-9\/]{3,15})\s+/i, '')
+        .replace(/^(?:cos|cs|cics|town|tm|mm|tien|tos|tmos|disc|sub\d?|sur|turma|\d{1,2}|[A-Z0-9\/]{3,15})\s+/i, '')
+        .trim();
+
+      clean = clean
+        .replace(
+          /\s+(?:MARIANA|MARCO|ROBSON|ISAAC|LEONARDO|MARIA|ANTONIO|LUIZ|CARLOS|PAULO|FERREIRA|CALVETTI|POJAR|SOUZA|SILVA|MANCINI|MAZZEI|PROFESSOR).*$/i,
+          ''
+        )
+        .trim();
+      clean = clean.replace(/\s+É\s+/g, ' E ');
+
+      if (clean.length > 5 && !isDuplicate(clean)) {
+        const formatted = clean
+          .toLowerCase()
+          .split(' ')
+          .map((w) => (['e', 'da', 'de', 'do', 'das', 'dos', 'em'].includes(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+          .join(' ');
+        addSubject(formatted);
+      }
+    }
+  }
+
+  const createdSubjects = Array.from(subjectsMap.values());
+
+  // 3. Extração de Horários da Grade Semanal
+  const createdClassSchedules: CollegeClassSchedule[] = [];
+  const timeRegex = /(\d{2}:\d{2})\s*[-–]\s*(\d{2}:\d{2})/;
+
+  for (const line of lines) {
+    const timeMatch = line.match(timeRegex);
+    if (timeMatch && (line.includes('|') || line.toLowerCase().includes('disc:'))) {
+      const startTime = timeMatch[1];
+      const endTime = timeMatch[2];
+
+      if (line.includes('|')) {
+        const cols = line.split('|').map((c) => c.trim()).filter(Boolean);
+        for (let colIdx = 1; colIdx < cols.length; colIdx++) {
+          const colText = cols[colIdx];
+          if (!colText || !colText.toLowerCase().includes('disc:')) continue;
+
+          const dayOfWeek = (colIdx <= 6 ? colIdx : 1) as 1 | 2 | 3 | 4 | 5 | 6;
+          const codeMatch = colText.match(/Disc:\s*([A-Z0-9]+)/i);
+          const roomMatch = colText.match(/Sl\.?\s*([A-Za-z0-9.]+)/i);
+
+          const code = codeMatch ? codeMatch[1].toUpperCase() : null;
+          const room = roomMatch ? `Sala ${roomMatch[1]}` : undefined;
+
+          let targetSubject = code ? codeToSubject.get(code) : null;
+          if (!targetSubject && createdSubjects.length > 0) {
+            targetSubject = createdSubjects[(colIdx - 1) % createdSubjects.length];
+          }
+
+          if (targetSubject) {
+            createdClassSchedules.push({
+              id: `sched-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              subjectId: targetSubject.id,
+              dayOfWeek,
+              startTime,
+              endTime,
+              room,
+              notes: code ? `Código: ${code}` : undefined,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  const createdTracks: LearningPath[] = createdSubjects.map((s) => ({
+    id: `track-col-${s.id}`,
+    title: `Trilha: ${s.name}`,
+    description: `Conteúdo e ementa semestral`,
+    category: 'Acadêmico',
+    level: 'intermediate',
+    subjectId: s.id,
+    modules: [{ id: 'mod-1', title: 'Conteúdo Semestral', items: [] }],
+    archived: false,
+    createdAt: now,
+    updatedAt: now,
+  }));
+
+  return {
+    detectedType: 'timetable',
+    createdSubjects,
+    createdTasks: [],
+    createdTracks,
+    createdClassSchedules,
+    summary: `Grade horária identificada (${filename}): ${createdSubjects.length} disciplinas e ${createdClassSchedules.length} horários semanais encontrados.`,
+  };
+}
+
 function parseTextLines(content: string, filename: string): ParsedDocumentResult {
   const lines = content
     .split(/\r?\n/)
@@ -245,7 +443,7 @@ function parseTextLines(content: string, filename: string): ParsedDocumentResult
 
   // Regex para termos acadêmicos típicos
   const academicSubjectKeywords =
-    /^(?:Cálculo|Engenharia|Física|Química|Algoritmos|Programação|Estruturas?|Bancos? de Dados|Sistemas?|Redes?|Inteligência Artificial|Direito|Economia|Administração|Contabilidade|Filosofia|Sociologia|Metodologia|Pesquisa|Arquitetura|Design|Segurança|Compiladores|Teoria da Computação|Estatística|Probabilidade|Matemática|Álgebra|Desenvolvimento|Web|Mobile|Software)/i;
+    /(?:Cálculo|Engenharia|Física|Química|Algoritmos|Programação|Estruturas?|Bancos? de Dados|Sistemas?|Redes?|Inteligência Artificial|Direito|Economia|Administração|Contabilidade|Filosofia|Sociologia|Metodologia|Pesquisa|Arquitetura|Design|Segurança|Compiladores|Teoria da Computação|Estatística|Probabilidade|Matemática|Álgebra|Desenvolvimento|Web|Mobile|Software)/i;
 
   let currentSubject: Subject | null = null;
   let currentTrack: LearningPath | null = null;
@@ -256,9 +454,9 @@ function parseTextLines(content: string, filename: string): ParsedDocumentResult
     // Ignorar linhas puramente decorativas (ex: "====", "----", "____")
     if (/^[=\-_*#\s]{3,}$/.test(line)) continue;
 
-    // 1. Detectar cabeçalho explícito de matéria (#, Matéria:, Disciplina:, Curso:)
+    // 1. Detectar cabeçalho explícito de matéria (#, Matéria:, Disciplina:, Componente:)
     const explicitSubjectMatch = line.match(
-      /^(?:#+\s*|(?:Matéria|Disciplina|Curso|Componente):\s*)([A-Za-z0-9À-ÿ\s\-\_]+)/i
+      /^(?:#+\s*|(?:Matéria|Disciplina|Componente):\s*)([A-Za-z0-9À-ÿ\s\-\_]+)/i
     );
 
     // 2. Detectar se a linha é um título de matéria pelo vocabulário acadêmico (sem data)

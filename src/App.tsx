@@ -2298,11 +2298,17 @@ export function App() {
                   </div>
 
                   {/* Resumo Rápido em Chips */}
-                  <div className="grid grid-cols-3 gap-2.5 font-mono text-center">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono text-center">
                     <div className="bg-indigo-50/70 border border-indigo-100 p-2.5 rounded-2xl">
                       <div className="text-[10px] text-indigo-600 font-bold uppercase">Disciplinas</div>
                       <div className="text-lg font-black text-indigo-900">
                         {pendingImportResult.createdSubjects.length}
+                      </div>
+                    </div>
+                    <div className="bg-cyan-50/70 border border-cyan-100 p-2.5 rounded-2xl">
+                      <div className="text-[10px] text-cyan-600 font-bold uppercase">Aulas na Grade</div>
+                      <div className="text-lg font-black text-cyan-900">
+                        {pendingImportResult.createdClassSchedules?.length || 0}
                       </div>
                     </div>
                     <div className="bg-amber-50/70 border border-amber-100 p-2.5 rounded-2xl">
@@ -2312,9 +2318,9 @@ export function App() {
                       </div>
                     </div>
                     <div className="bg-emerald-50/70 border border-emerald-100 p-2.5 rounded-2xl">
-                      <div className="text-[10px] text-emerald-600 font-bold uppercase">Tópicos / Trilhas</div>
+                      <div className="text-[10px] text-emerald-600 font-bold uppercase">Trilhas / Ementas</div>
                       <div className="text-lg font-black text-emerald-900">
-                        {pendingImportResult.createdTracks.reduce((acc, t) => acc + (t.modules[0]?.items?.length || 0), 0)}
+                        {pendingImportResult.createdTracks.length}
                       </div>
                     </div>
                   </div>
@@ -2358,11 +2364,13 @@ export function App() {
                       O que será cadastrado no FocusUp:
                     </h4>
 
-                    {pendingImportResult.createdSubjects.length === 0 && pendingImportResult.createdTasks.length === 0 && (
-                      <div className="p-4 rounded-2xl bg-slate-50 text-slate-500 text-xs text-center border border-dashed border-slate-200">
-                        Nenhuma matéria ou data de prova foi detectada automaticamente. Adicione no texto acima uma matéria e datas (ex: <code>Cálculo II | P1 | 15/11</code>) e clique em <b>Reprocessar Texto</b>.
-                      </div>
-                    )}
+                    {pendingImportResult.createdSubjects.length === 0 &&
+                      pendingImportResult.createdTasks.length === 0 &&
+                      (!pendingImportResult.createdClassSchedules || pendingImportResult.createdClassSchedules.length === 0) && (
+                        <div className="p-4 rounded-2xl bg-slate-50 text-slate-500 text-xs text-center border border-dashed border-slate-200">
+                          Nenhuma matéria ou data de prova foi detectada automaticamente. Adicione no texto acima uma matéria e datas (ex: <code>Cálculo II | P1 | 15/11</code>) e clique em <b>Reprocessar Texto</b>.
+                        </div>
+                      )}
 
                     {/* Matérias Detectadas */}
                     {pendingImportResult.createdSubjects.length > 0 && (
@@ -2385,6 +2393,37 @@ export function App() {
                               )}
                             </div>
                           ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Aulas da Grade Semanal Detectadas */}
+                    {pendingImportResult.createdClassSchedules && pendingImportResult.createdClassSchedules.length > 0 && (
+                      <div className="space-y-1.5">
+                        <div className="text-[11px] font-bold text-slate-600">
+                          Horários da Grade Semanal ({pendingImportResult.createdClassSchedules.length} aulas):
+                        </div>
+                        <div className="max-h-32 overflow-y-auto space-y-1 pr-1 text-xs">
+                          {pendingImportResult.createdClassSchedules.map((cs, idx) => {
+                            const sub = pendingImportResult.createdSubjects.find((s) => s.id === cs.subjectId);
+                            const dayName = ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][cs.dayOfWeek] || 'Dia';
+                            return (
+                              <div
+                                key={cs.id || idx}
+                                className="flex items-center justify-between bg-cyan-50/70 border border-cyan-200/70 px-2.5 py-1.5 rounded-xl"
+                              >
+                                <div className="flex items-center gap-2 truncate">
+                                  <span className="font-mono text-[10px] font-bold bg-white text-cyan-800 px-1.5 py-0.5 rounded border border-cyan-100">
+                                    {dayName} {cs.startTime} - {cs.endTime}
+                                  </span>
+                                  <span className="font-bold text-slate-800 truncate">{sub?.name || 'Disciplina'}</span>
+                                </div>
+                                {cs.room && (
+                                  <span className="text-[10px] text-cyan-700 font-mono shrink-0 pl-1">{cs.room}</span>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -2440,13 +2479,20 @@ export function App() {
                       Descartar
                     </button>
                     <button
-                      disabled={pendingImportResult.createdSubjects.length === 0 && pendingImportResult.createdTasks.length === 0}
+                      disabled={
+                        pendingImportResult.createdSubjects.length === 0 &&
+                        pendingImportResult.createdTasks.length === 0 &&
+                        (!pendingImportResult.createdClassSchedules || pendingImportResult.createdClassSchedules.length === 0)
+                      }
                       onClick={async () => {
                         if (pendingImportResult.createdSubjects.length > 0) {
                           await db.subjects.bulkAdd(pendingImportResult.createdSubjects);
                           for (const s of pendingImportResult.createdSubjects) {
                             await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
                           }
+                        }
+                        if (pendingImportResult.createdClassSchedules && pendingImportResult.createdClassSchedules.length > 0) {
+                          await db.collegeClasses.bulkAdd(pendingImportResult.createdClassSchedules);
                         }
                         if (pendingImportResult.createdTasks.length > 0) {
                           await db.tasks.bulkAdd(pendingImportResult.createdTasks);
@@ -2457,7 +2503,11 @@ export function App() {
 
                         triggerVictoryEffect();
                         setPendingImportResult(null);
-                        setCollegeSubTab('disciplines');
+                        setCollegeSubTab(
+                          pendingImportResult.createdClassSchedules && pendingImportResult.createdClassSchedules.length > 0
+                            ? 'timetable'
+                            : 'disciplines'
+                        );
                       }}
                       className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-extrabold text-xs px-6 py-2.5 rounded-xl shadow-xs transition active:scale-95"
                     >
