@@ -94,6 +94,21 @@ export const LearningTracksSection: React.FC<LearningTracksSectionProps> = ({
     };
   }, [learningPaths]);
 
+  // Prévia dinâmica da organização da trilha em tempo real
+  const previewPath = useMemo(() => {
+    if (!rawText.trim() || rawText.trim().length < 20) return null;
+    try {
+      return parseRawLearningPathText(rawText, {
+        title: trackTitle.trim() || undefined,
+        category: trackCategory,
+        level: trackLevel,
+        defaultHoursPerWeek: hoursPerWeek,
+      });
+    } catch {
+      return null;
+    }
+  }, [rawText, trackTitle, trackCategory, trackLevel, hoursPerWeek]);
+
   const toggleModuleAccordion = (trackId: string, modId: string) => {
     const key = `${trackId}-${modId}`;
     setExpandedModules((prev) => ({
@@ -220,9 +235,22 @@ export const LearningTracksSection: React.FC<LearningTracksSectionProps> = ({
       const content = event.target?.result as string;
       if (content) {
         setRawText(content);
-        if (!trackTitle) {
-          const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
-          setTrackTitle(cleanName);
+        try {
+          const parsed = parseRawLearningPathText(content, { defaultHoursPerWeek: hoursPerWeek });
+          if (parsed.title && parsed.title !== 'Trilha Personalizada') {
+            setTrackTitle(parsed.title);
+          } else if (!trackTitle) {
+            const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+            setTrackTitle(cleanName);
+          }
+          if (parsed.targetHoursPerWeek) {
+            setHoursPerWeek(parsed.targetHoursPerWeek);
+          }
+        } catch {
+          if (!trackTitle) {
+            const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+            setTrackTitle(cleanName);
+          }
         }
         setModalTab('text');
       }
@@ -516,9 +544,13 @@ export const LearningTracksSection: React.FC<LearningTracksSectionProps> = ({
                               </span>
                               <div>
                                 <div className="font-bold text-xs text-slate-800">{mod.title}</div>
-                                {mod.targetDate && (
-                                  <div className="text-[10px] text-slate-400">
-                                    Meta: {mod.targetDate} • {modCompleted}/{modTotal} concluídos
+                                <div className="text-[10px] text-slate-400">
+                                  {mod.targetDate ? `Meta: ${mod.targetDate} • ` : ''}
+                                  {modCompleted}/{modTotal} concluídos
+                                </div>
+                                {mod.description && (
+                                  <div className="text-[10px] text-indigo-600 font-medium mt-0.5 line-clamp-1">
+                                    {mod.description}
                                   </div>
                                 )}
                               </div>
@@ -743,9 +775,47 @@ export const LearningTracksSection: React.FC<LearningTracksSectionProps> = ({
                     className="w-full text-xs p-3 font-mono rounded-xl border border-slate-200 bg-slate-50/50 focus:outline-hidden"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">
-                    Dica: use <code>## Módulo</code> para separar seções, <code>[exercício]</code> para desafios e <code>(30m)</code> para tempos estimados.
+                    Dica: aceita Markdown (<code>## Módulo</code>), ementas completas com <code>Semana X</code> e colchetes (<code>[Tópico]</code>), desafios (<code>[exercício]</code>) e projetos.
                   </p>
                 </div>
+
+                {/* Prévia da Organização em Tempo Real */}
+                {previewPath && (
+                  <div className="p-3.5 bg-indigo-50/70 rounded-2xl border border-indigo-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black uppercase text-indigo-700 tracking-wider flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Organização Detectada</span>
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white text-indigo-700 border border-indigo-200">
+                        {previewPath.modules.length} Módulos/Semanas • {previewPath.modules.reduce((acc, m) => acc + m.items.length, 0)} Aulas & Projetos
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-800 font-bold">
+                      {previewPath.title} (~{previewPath.targetHoursPerWeek || hoursPerWeek}h/semana • ~{previewPath.modules.length} semanas)
+                    </div>
+
+                    <div className="max-h-44 overflow-y-auto space-y-1.5 pr-1">
+                      {previewPath.modules.map((m, mIdx) => (
+                        <div key={m.id || mIdx} className="p-2.5 bg-white rounded-xl border border-indigo-100/80 text-[11px] space-y-1">
+                          <div className="font-bold text-slate-800 flex items-center justify-between">
+                            <span>{m.title}</span>
+                            <span className="text-[10px] text-slate-400 font-mono">{m.items.length} itens</span>
+                          </div>
+                          {m.description && (
+                            <div className="text-[10px] text-indigo-600 font-medium truncate">
+                              {m.description}
+                            </div>
+                          )}
+                          <div className="text-[10px] text-slate-500 line-clamp-1">
+                            {m.items.map((it) => `${it.type === 'project' ? '🛠 ' : ''}${it.title}`).join(' • ')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

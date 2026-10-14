@@ -84,6 +84,239 @@ export function cleanItemTitle(text: string): string {
 }
 
 /**
+ * Detecta se o texto segue o padrão de ementa / currículo estruturado por semanas ou módulos com tópicos
+ */
+export function isCurriculumSyllabusFormat(text: string): boolean {
+  // Se contiver cabeçalhos markdown explícitos (ex: "## Módulo"), trata como Markdown padrão
+  if (/^#{1,3}\s+/m.test(text)) return false;
+
+  return (
+    /(?:SEMANA|M[OÓ]DULO|FASE)\s*\d+\s*[-—:]/i.test(text) &&
+    (/conte[uú]do\s*:/i.test(text) || /^\[[A-ZÀ-Ú0-9\s\-_–—]+\]$/m.test(text) || /projeto\s*da\s*semana/i.test(text))
+  );
+}
+
+/**
+ * Parser especializado para currículos detalhados (ex: trilhas de semanas com tópicos, ementa e projetos)
+ */
+export function parseCurriculumSyllabus(
+  rawText: string,
+  options: {
+    title?: string;
+    defaultHoursPerWeek?: number;
+    startDate?: string;
+    level?: 'beginner' | 'intermediate' | 'advanced';
+    category?: string;
+  } = {}
+): LearningPath {
+  const lines = rawText.split(/\r?\n/).map((l) => l.trim());
+  const startDate = options.startDate || formatDateToLocalYYYYMMDD(new Date());
+
+  let trackTitle = options.title || '';
+  let hoursPerWeek = options.defaultHoursPerWeek;
+
+  interface RawSyllabusMod {
+    title: string;
+    description?: string;
+    items: { title: string; type: 'lesson' | 'exercise' | 'project'; estimatedMinutes: number }[];
+    resources: string[];
+  }
+
+  const rawModules: RawSyllabusMod[] = [];
+  let currentMod: RawSyllabusMod | null = null;
+  let currentTopic = '';
+  let currentContentLines: string[] = [];
+
+  function flushContent() {
+    if (!currentMod || !currentTopic) return;
+    const fullContent = currentContentLines.join(' ').trim();
+
+    if (fullContent) {
+      const parts = fullContent.split(/[,;]/).map((p) => p.trim()).filter(Boolean);
+      if (parts.length <= 4) {
+        currentMod.items.push({
+          title: `${currentTopic}: ${parts.join(', ')}`,
+          type: detectItemType(currentTopic),
+          estimatedMinutes: 45,
+        });
+      } else {
+        const mid = Math.ceil(parts.length / 2);
+        currentMod.items.push({
+          title: `${currentTopic}: ${parts.slice(0, mid).join(', ')}`,
+          type: detectItemType(currentTopic),
+          estimatedMinutes: 45,
+        });
+        currentMod.items.push({
+          title: `${currentTopic}: ${parts.slice(mid).join(', ')}`,
+          type: detectItemType(currentTopic),
+          estimatedMinutes: 45,
+        });
+      }
+    } else {
+      currentMod.items.push({
+        title: currentTopic,
+        type: detectItemType(currentTopic),
+        estimatedMinutes: 45,
+      });
+    }
+
+    currentContentLines = [];
+    currentTopic = '';
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+
+    // Linhas divisórias decorativas
+    if (/^[=━─\-_~*]{3,}$/.test(line)) continue;
+
+    // Seções de encerramento / resumo
+    if (/^(?:RESUMO GERAL|DICA|DICAS|NOTAS FINAIS|CONCLUSÃO)/i.test(line)) {
+      flushContent();
+      break;
+    }
+
+    // Metadados do cabeçalho
+    if (!trackTitle && line.startsWith('# ')) {
+      trackTitle = line.replace(/^#\s+/, '').trim();
+      continue;
+    }
+
+    if (!trackTitle && /TRILHA DE ESTUDOS\s*[-—:]\s*(.+)/i.test(line)) {
+      const match = line.match(/TRILHA DE ESTUDOS\s*[-—:]\s*(.+)/i);
+      if (match) trackTitle = match[1].trim();
+      continue;
+    }
+
+    const pacingMatch = line.match(/(\d+)\s*horas?\s*por\s*dia/i);
+    if (pacingMatch && !hoursPerWeek) {
+      hoursPerWeek = Math.min(28, parseInt(pacingMatch[1], 10) * 7);
+    }
+
+    // Cabeçalho de Semana / Módulo
+    const modMatch = line.match(/^(?:SEMANA|M[OÓ]DULO|FASE|PARTE|ETAPA)\s*(\d+)\s*[-—:]\s*(.+)/i);
+    if (modMatch) {
+      flushContent();
+      currentMod = {
+        title: `Semana ${modMatch[1]}: ${modMatch[2].trim()}`,
+        items: [],
+        resources: [],
+      };
+      rawModules.push(currentMod);
+      continue;
+    }
+
+    // Projeto da semana
+    const projMatch = line.match(/^projeto(?:\s*da\s*semana)?\s*[:–-]\s*(.+)/i);
+    if (projMatch && currentMod) {
+      flushContent();
+      currentMod.items.push({
+        title: `Projeto da Semana: ${projMatch[1].trim()}`,
+        type: 'project',
+        estimatedMinutes: 90,
+      });
+      continue;
+    }
+
+    // Tópico em colchetes [LÓGICA DE PROGRAMAÇÃO]
+    const topicMatch = line.match(/^\[(.*?)\]$/);
+    if (topicMatch && currentMod) {
+      flushContent();
+      currentTopic = topicMatch[1].replace(/^[–—\s]+|[–—\s]+$/g, '').trim();
+      continue;
+    }
+
+    // Linha de Conteúdo:
+    if (/^conte[uú]do\s*:\s*(.*)/i.test(line)) {
+      const rest = line.replace(/^conte[uú]do\s*:\s*/i, '').trim();
+      currentContentLines = rest ? [rest] : [];
+      continue;
+    }
+
+    // Continuação de Conteúdo
+    if (currentTopic && currentContentLines.length > 0) {
+      if (/^(?:recursos|projeto|---)/i.test(line) || /^\[.*\]$/.test(line)) {
+        flushContent();
+        if (/^projeto/i.test(line) && currentMod) {
+          const pMatch = line.match(/^projeto(?:\s*da\s*semana)?\s*[:–-]\s*(.+)/i);
+          if (pMatch) {
+            currentMod.items.push({
+              title: `Projeto da Semana: ${pMatch[1].trim()}`,
+              type: 'project',
+              estimatedMinutes: 90,
+            });
+          }
+        } else if (/^\[.*\]$/.test(line)) {
+          const tMatch = line.match(/^\[(.*?)\]$/);
+          if (tMatch) currentTopic = tMatch[1].replace(/^[–—\s]+|[–—\s]+$/g, '').trim();
+        }
+      } else {
+        currentContentLines.push(line);
+      }
+      continue;
+    }
+
+    // Recursos e Links (salvos como descrição do módulo, não como tarefas de estudo)
+    if (
+      /^[▶🌐]/.test(line) ||
+      /youtube\.com|loiane\.training|betrybe\.com|freecodecamp\.org|roadmap\.sh|refactoring\.guru/i.test(line)
+    ) {
+      if (currentMod && !line.includes('http') && !line.includes('.com') && !line.includes('playlist?')) {
+        const cleanRec = line.replace(/^[▶🌐\s]+/, '').trim();
+        if (cleanRec && !currentMod.resources.includes(cleanRec)) {
+          currentMod.resources.push(cleanRec);
+        }
+      }
+      continue;
+    }
+  }
+
+  flushContent();
+
+  const finalHours = hoursPerWeek || 21;
+  const now = Date.now();
+  const pathId = `track-${now}-${Math.random().toString(36).substring(2, 6)}`;
+
+  const modules: ModuleItem[] = rawModules.map((mod, modIdx) => {
+    const modId = `mod-${modIdx + 1}-${Math.random().toString(36).substring(2, 5)}`;
+    const items: LessonItem[] = mod.items.map((it, itIdx) => ({
+      id: `item-${modId}-${itIdx + 1}`,
+      title: it.title,
+      type: it.type,
+      completed: false,
+      estimatedMinutes: it.estimatedMinutes,
+    }));
+
+    const desc = mod.resources.length > 0 ? `Recursos: ${mod.resources.slice(0, 4).join(' • ')}` : undefined;
+
+    return {
+      id: modId,
+      title: mod.title,
+      description: desc,
+      items,
+    };
+  });
+
+  const rawPath: LearningPath = {
+    id: pathId,
+    title: trackTitle || 'Trilha de Estudos para Programador',
+    description: `Roteiro completo de 8 semanas com metas diárias e projetos práticos.`,
+    category: options.category || 'Tecnologia',
+    level: options.level || 'intermediate',
+    modules,
+    targetHoursPerWeek: finalHours,
+    startDate,
+    archived: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const { path } = organizeTrackPacing(rawPath, { targetHoursPerWeek: finalHours, startDate });
+  return path;
+}
+
+/**
  * Converte texto livre, ementa ou roteiro em uma LearningPath organizada
  */
 export function parseRawLearningPathText(
@@ -96,10 +329,15 @@ export function parseRawLearningPathText(
     category?: string;
   } = {}
 ): LearningPath {
+  // Se for formato de ementa / currículo detalhado por semanas, usar parser especializado
+  if (isCurriculumSyllabusFormat(rawText)) {
+    return parseCurriculumSyllabus(rawText, options);
+  }
+
   const lines = rawText
     .split(/\r?\n/)
     .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+    .filter((l) => l.length > 0 && !/^[=━─\-_~*]{3,}$/.test(l) && !/^https?:\/\//i.test(l));
 
   const startDate = options.startDate || formatDateToLocalYYYYMMDD(new Date());
   const hoursPerWeek = options.defaultHoursPerWeek || 5;
@@ -113,6 +351,10 @@ export function parseRawLearningPathText(
   const looseItems: string[] = [];
 
   for (const line of lines) {
+    // Linhas a ignorar (divisores decorativos e URLs)
+    if (/^[=━─\-_~*]{3,}$/.test(line)) continue;
+    if (/^(?:RESUMO GERAL|DICA|DICAS|NOTAS FINAIS)/i.test(line)) break;
+
     // 1. Título principal se for cabeçalho nível 1 (# ...)
     if (line.startsWith('# ') && !foundTitle) {
       trackTitle = line.replace(/^#\s+/, '').trim();

@@ -139,4 +139,60 @@ Projeto: Subir stack com Postgres e Node
     const uncompletedPath = syncTrackWithTaskStatus(completedPath, mockTaskId, false);
     expect(uncompletedPath.modules[0].items[0].completed).toBe(false);
   });
+
+  it('faz o parsing completo de currículos detalhados com semanas, tópicos e projetos (estilo trilha_programador_junior)', () => {
+    const syllabusSample = `
+================================================================
+  TRILHA DE ESTUDOS — PROGRAMADOR JUNIOR EM 2 MESES
+  3 horas por dia · 8 semanas · 168 horas no total
+================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SEMANA 1 — FUNDAMENTOS E BASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[LÓGICA DE PROGRAMAÇÃO]
+Conteúdo: Variáveis, tipos, operadores, condicionais (if/else, switch),
+laços (while, for), funções, arrays, pseudocódigo
+
+Recursos:
+  ▶ Curso de Algoritmo — Curso em Vídeo (Gustavo Guanabara)
+    youtube.com/playlist?list=123
+
+---
+
+[GIT E GITHUB]
+Conteúdo: init, add, commit, push, pull, branches, merge
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SEMANA 2 — HTML E CSS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[HTML5 E CSS3]
+Conteúdo: Tags semânticas, formulários, box model, Flexbox, Grid
+
+Projeto da semana: Landing page responsiva publicada no GitHub Pages
+
+================================================================
+  RESUMO GERAL
+================================================================
+Semana 1 · Lógica
+Semana 2 · HTML
+`;
+
+    const path = parseRawLearningPathText(syllabusSample, {
+      startDate: '2026-10-14',
+    });
+
+    expect(path.title).toBe('PROGRAMADOR JUNIOR EM 2 MESES');
+    expect(path.targetHoursPerWeek).toBe(21); // 3h/dia * 7
+    expect(path.modules.length).toBe(2);
+    expect(path.modules[0].title).toContain('Semana 1');
+    expect(path.modules[0].description).toContain('Curso de Algoritmo');
+
+    // Módulo 2 deve ter o projeto identificado com tipo project
+    const proj = path.modules[1].items.find((it) => it.type === 'project');
+    expect(proj).toBeDefined();
+    expect(proj?.title).toContain('Landing page responsiva');
+  });
 });
