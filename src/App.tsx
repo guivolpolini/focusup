@@ -35,11 +35,13 @@ import { calculateNextSRSReview, formatDateToLocalYYYYMMDD } from './lib/srsEngi
 import { generateWeeklySchedule } from './lib/schedulerEngine';
 import { exportAllData, validateBackupString, restoreByReplacement } from './lib/backupEngine';
 import { calculateGamification } from './lib/gamification';
-import type { SessionMode, StudySession } from './types';
+import { generateWeeklyReviewAnalysis } from './lib/weeklyReviewEngine';
+import type { SessionMode, StudySession, WeeklyReview } from './types';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'tracks' | 'schedule' | 'progress' | 'flashcards' | 'career' | 'settings'>('home');
   const [now, setNow] = useState(Date.now());
+  const [currentReview, setCurrentReview] = useState<WeeklyReview | null>(null);
 
   // Estado do Cronômetro
   const [timerState, setTimerState] = useState<ActiveTimerState>(() => {
@@ -965,6 +967,86 @@ export function App() {
                 <div className="text-3xl font-black text-slate-900 mt-2">{flashcards.length}</div>
                 <div className="text-xs text-slate-400 font-medium mt-1">{totalFlashcardReviews} revisões feitas</div>
               </div>
+            </div>
+
+            {/* Painel de Análise e Revisão Semanal Automática */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">Relatório Semanal Baseado em Regras</h3>
+                  <p className="text-xs text-slate-500">
+                    Análise determinística e transparente derivada exclusivamente dos seus registros de estudo.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    const subjectNames: Record<string, string> = {};
+                    subjects.forEach((s) => (subjectNames[s.id] = s.name));
+                    const priorityIds = subjects.filter((s) => s.priority === 'high').map((s) => s.id);
+
+                    const analysis = generateWeeklyReviewAnalysis({
+                      weekStartDate: new Date(),
+                      sessions,
+                      weeklyGoalMinutes: (preferences?.dailyGoalMinutes || 120) * 7,
+                      subjectNames,
+                      prioritySubjectIds: priorityIds,
+                    });
+                    setCurrentReview(analysis);
+                  }}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition active:scale-95"
+                >
+                  Gerar Análise Semanal
+                </button>
+              </div>
+
+              {currentReview && (
+                <div className="mt-4 p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                    <span className="text-xs font-bold text-slate-700">
+                      Período: {currentReview.weekStartDate} a {currentReview.weekEndDate}
+                    </span>
+                    <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200">
+                      {currentReview.goalCompletionRate}% da Meta Semanal
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="text-xs font-bold text-slate-700">Observações dos Seus Dados:</div>
+                    <ul className="space-y-1">
+                      {currentReview.observations.map((obs, i) => (
+                        <li key={i} className="text-xs text-slate-600 flex items-start gap-2">
+                          <span className="text-indigo-500 font-bold">•</span> {obs}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {currentReview.proposedNextPlan && (
+                    <div className="p-4 rounded-xl bg-white border border-indigo-100 space-y-2">
+                      <div className="text-xs font-black text-slate-900">
+                        Proposta de Foco para a Próxima Semana:
+                      </div>
+                      <p className="text-xs text-slate-600">
+                        {currentReview.proposedNextPlan.notes}
+                      </p>
+                      <div className="flex gap-2 pt-2">
+                        <button
+                          onClick={() => alert('Plano aceito com sucesso para a próxima semana!')}
+                          className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg transition"
+                        >
+                          Aceitar Proposta
+                        </button>
+                        <button
+                          onClick={() => setCurrentReview(null)}
+                          className="text-xs bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold px-3 py-1.5 rounded-lg transition"
+                        >
+                          Fechar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
