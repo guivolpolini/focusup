@@ -21,6 +21,8 @@ import {
   Swords,
   ChevronRight,
   Star,
+  Settings2,
+  Plus,
 } from 'lucide-react';
 
 import { db, seedInitialData } from './lib/db';
@@ -553,16 +555,68 @@ export function App() {
                 <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
                   <Swords className="w-5 h-5 text-amber-500" /> Árvore de Matérias
                 </h3>
-                <button
-                  onClick={() => setActiveTab('tracks')}
-                  className="text-xs text-indigo-600 font-bold hover:underline"
-                >
-                  Ver todas as trilhas →
-                </button>
+                <span className="text-xs text-slate-400 font-medium">{subjects.length} matérias ativas</span>
               </div>
 
+              {/* Formulário Rápido de Nova Matéria */}
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const form = e.currentTarget;
+                  const name = (form.elements.namedItem('subName') as HTMLInputElement).value;
+                  const color = (form.elements.namedItem('subColor') as HTMLInputElement).value || '#6366f1';
+                  const targetMinutes = Number((form.elements.namedItem('subTarget') as HTMLInputElement).value) || 120;
+
+                  if (!name) return;
+
+                  await db.subjects.add({
+                    id: `sub-${Date.now()}`,
+                    name,
+                    color,
+                    priority: 'medium',
+                    targetMinutesPerWeek: targetMinutes,
+                    archived: false,
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                  });
+
+                  form.reset();
+                  triggerVictoryEffect();
+                  alert('Nova matéria adicionada à sua árvore de conhecimentos!');
+                }}
+                className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100"
+              >
+                <input
+                  name="subColor"
+                  type="color"
+                  defaultValue="#6366f1"
+                  className="w-8 h-8 rounded-xl cursor-pointer border-0 bg-transparent p-0"
+                  title="Cor da matéria"
+                />
+                <input
+                  name="subName"
+                  placeholder="Nome da matéria (ex: Docker, Rust, Algoritmos)..."
+                  required
+                  className="flex-1 text-xs p-2 bg-transparent focus:outline-hidden"
+                />
+                <input
+                  name="subTarget"
+                  type="number"
+                  defaultValue={120}
+                  className="w-16 text-xs p-2 bg-white rounded-lg border border-slate-200 text-center focus:outline-hidden"
+                  title="Meta de minutos por semana"
+                />
+                <span className="text-[10px] text-slate-400 font-bold mr-1">m/sem</span>
+                <button
+                  type="submit"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-2 rounded-xl transition active:scale-95 shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </form>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {subjects.slice(0, 4).map((sub) => (
+                {subjects.map((sub) => (
                   <div
                     key={sub.id}
                     className="p-4 rounded-2xl border border-slate-100 bg-slate-50/70 hover:bg-slate-50 transition flex items-center justify-between"
@@ -577,13 +631,26 @@ export function App() {
                         <div className="text-[11px] text-slate-500 font-medium">Meta: {sub.targetMinutesPerWeek}m/sem</div>
                       </div>
                     </div>
-                    <button
-                      onClick={() => startTimer('pomodoro', 25, sub.id)}
-                      className="p-2.5 rounded-xl bg-white border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50 text-indigo-600 transition active:scale-95 shadow-xs"
-                      title="Ativar foco nesta matéria"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => startTimer('pomodoro', 25, sub.id)}
+                        className="p-2.5 rounded-xl bg-white border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50 text-indigo-600 transition active:scale-95 shadow-xs"
+                        title="Ativar foco nesta matéria"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (confirm(`Deseja remover a matéria "${sub.name}"?`)) {
+                            await db.subjects.delete(sub.id);
+                          }
+                        }}
+                        className="text-slate-300 hover:text-rose-500 p-1 transition"
+                        title="Remover matéria"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1545,13 +1612,46 @@ export function App() {
           </div>
         )}
 
-        {/* TAB: COFRE DE DADOS (BACKUP) */}
+        {/* TAB: CONFIGURAÇÕES & COFRE DE DADOS */}
         {activeTab === 'settings' && (
           <div className="max-w-xl mx-auto space-y-6">
             <header>
-              <h2 className="text-2xl font-black text-slate-900">Cofre de Dados Local (Backup)</h2>
-              <p className="text-xs text-slate-500 mt-1">Seus dados residem exclusivamente no seu navegador.</p>
+              <h2 className="text-2xl font-black text-slate-900">Configurações & Cofre de Dados</h2>
+              <p className="text-xs text-slate-500 mt-1">Ajuste suas metas de estudo e gerencie seus backups.</p>
             </header>
+
+            {/* Ajuste de Metas de Estudo */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex items-center gap-2">
+                <Settings2 className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-extrabold text-slate-900 text-sm">Metas de Estudo</h3>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                <div>
+                  <div className="text-xs font-bold text-slate-800">Meta Diária de Foco</div>
+                  <div className="text-[10px] text-slate-400">Minutos de estudo esperados por dia</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    defaultValue={preferences?.dailyGoalMinutes || 120}
+                    onBlur={async (e) => {
+                      const val = Number(e.target.value);
+                      if (val > 0) {
+                        await db.preferences.update('user_preferences', {
+                          dailyGoalMinutes: val,
+                          updatedAt: Date.now(),
+                        });
+                        alert('Meta diária atualizada!');
+                      }
+                    }}
+                    className="w-20 text-xs p-2 rounded-xl bg-white border border-slate-200 text-center font-bold font-mono focus:outline-hidden"
+                  />
+                  <span className="text-xs font-bold text-slate-500">minutos</span>
+                </div>
+              </div>
+            </div>
 
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
               <div className="flex items-start gap-3 p-4 bg-amber-50 rounded-2xl text-amber-800 text-xs border border-amber-200">
