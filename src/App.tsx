@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import confetti from 'canvas-confetti';
 import { ConsistencyCalendar } from './components/ConsistencyCalendar';
@@ -99,6 +99,17 @@ export function App() {
   const [now, setNow] = useState(Date.now());
   const [currentReview, setCurrentReview] = useState<WeeklyReview | null>(null);
   const [currentSchedule, setCurrentSchedule] = useState<SchedulerOutput | null>(null);
+
+  // Ref e auto-scroll para a barra de navegação móvel espaçosa
+  const mobileNavRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (mobileNavRef.current) {
+      const activeEl = mobileNavRef.current.querySelector<HTMLElement>('[data-active="true"]');
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }
+  }, [activeTab]);
 
   // Estado do Cronômetro
   const [timerState, setTimerState] = useState<ActiveTimerState>(() => {
@@ -415,7 +426,7 @@ export function App() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row pb-20 md:pb-0 selection:bg-indigo-100 selection:text-indigo-900">
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row pb-28 md:pb-0 selection:bg-indigo-100 selection:text-indigo-900">
       {/* Sidebar Desktop — Visual Claro & Gamificado */}
       <aside className="hidden md:flex flex-col w-72 bg-white border-r border-slate-200/90 p-5 shadow-xs">
         <div className="flex items-center gap-3 mb-6 px-1">
@@ -3203,80 +3214,43 @@ export function App() {
         )}
       </main>
 
-      {/* Navegação Inferior Mobile — Tema Claro & Gamificado */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 flex justify-around p-2 z-50">
-        <button
-          onClick={() => setActiveTab('home')}
-          className={`flex flex-col items-center gap-1 p-1 text-[10px] font-bold ${
-            activeTab === 'home' ? 'text-indigo-600' : 'text-slate-400'
-          }`}
+      {/* Navegação Inferior Mobile — Espaçosa, Touch-Friendly & Rolagem Suave */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200/90 z-50 py-2.5 px-2 shadow-lg">
+        <div
+          ref={mobileNavRef}
+          className="flex items-center gap-2 overflow-x-auto scrollbar-none px-2 py-0.5"
         >
-          <Layers className="w-5 h-5" />
-          QG
-        </button>
-        <button
-          onClick={() => setActiveTab('focus')}
-          className={`flex flex-col items-center gap-1 p-1 text-[10px] font-bold ${
-            activeTab === 'focus' ? 'text-amber-500' : 'text-slate-400'
-          }`}
-        >
-          <Zap className="w-5 h-5" />
-          Foco
-        </button>
-        <button
-          onClick={() => setActiveTab('tracks')}
-          className={`flex flex-col items-center gap-1 p-1 text-[10px] font-bold ${
-            activeTab === 'tracks' ? 'text-indigo-600' : 'text-slate-400'
-          }`}
-        >
-          <BookOpen className="w-5 h-5" />
-          Trilhas
-        </button>
-        <button
-          onClick={() => setActiveTab('college')}
-          className={`flex flex-col items-center gap-1 p-1 text-[10px] font-bold ${
-            activeTab === 'college' ? 'text-indigo-600' : 'text-slate-400'
-          }`}
-        >
-          <GraduationCap className="w-5 h-5" />
-          Facul
-        </button>
-        <button
-          onClick={() => setActiveTab('gym')}
-          className={`flex flex-col items-center gap-1 p-1 text-[10px] font-bold ${
-            activeTab === 'gym' ? 'text-amber-500 font-black' : 'text-slate-400'
-          }`}
-        >
-          <Dumbbell className="w-5 h-5" />
-          Treino
-        </button>
-        <button
-          onClick={() => setActiveTab('habits')}
-          className={`flex flex-col items-center gap-1 p-1 text-[10px] font-bold ${
-            activeTab === 'habits' ? 'text-emerald-600 font-black' : 'text-slate-400'
-          }`}
-        >
-          <CheckSquare className="w-5 h-5" />
-          Hábitos
-        </button>
-        <button
-          onClick={() => setActiveTab('weekly_report')}
-          className={`flex flex-col items-center gap-1 p-1 text-[10px] font-bold ${
-            activeTab === 'weekly_report' ? 'text-indigo-600 font-black' : 'text-slate-400'
-          }`}
-        >
-          <FileText className="w-5 h-5" />
-          Relatório
-        </button>
-        <button
-          onClick={() => setActiveTab('settings')}
-          className={`flex flex-col items-center gap-1 p-1 text-[10px] font-bold ${
-            activeTab === 'settings' ? 'text-indigo-600' : 'text-slate-400'
-          }`}
-        >
-          <Shield className="w-5 h-5" />
-          Cofre
-        </button>
+          {[
+            { id: 'home' as const, label: 'QG', icon: Layers, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
+            { id: 'focus' as const, label: 'Foco', icon: Zap, activeColor: 'text-amber-600 bg-amber-50/90 border-amber-200 shadow-xs' },
+            { id: 'gym' as const, label: 'Treino', icon: Dumbbell, activeColor: 'text-rose-600 bg-rose-50/90 border-rose-200 shadow-xs' },
+            { id: 'habits' as const, label: 'Hábitos', icon: CheckSquare, activeColor: 'text-emerald-600 bg-emerald-50/90 border-emerald-200 shadow-xs' },
+            { id: 'college' as const, label: 'Facul', icon: GraduationCap, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
+            { id: 'tracks' as const, label: 'Trilhas', icon: BookOpen, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
+            { id: 'weekly_report' as const, label: 'Relatório', icon: FileText, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
+            { id: 'schedule' as const, label: 'Estratégia', icon: Calendar, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
+            { id: 'progress' as const, label: 'Conquistas', icon: Trophy, activeColor: 'text-amber-600 bg-amber-50/90 border-amber-200 shadow-xs' },
+            { id: 'settings' as const, label: 'Cofre', icon: Shield, activeColor: 'text-slate-700 bg-slate-100 border-slate-300 shadow-xs' },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                data-active={isActive ? 'true' : 'false'}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex flex-col items-center justify-center min-w-[70px] px-3 py-1.5 rounded-2xl border transition-all active:scale-95 shrink-0 ${
+                  isActive
+                    ? `${tab.activeColor} font-black`
+                    : 'border-transparent text-slate-400 hover:text-slate-600 font-bold hover:bg-slate-50'
+                }`}
+              >
+                <Icon className={`w-5 h-5 ${isActive ? '' : 'text-slate-400'}`} />
+                <span className="text-[11px] mt-0.5 tracking-tight whitespace-nowrap">{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </nav>
     </div>
   );
