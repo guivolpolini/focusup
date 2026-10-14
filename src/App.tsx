@@ -24,6 +24,8 @@ import {
   Settings2,
   Plus,
   GraduationCap,
+  FileUp,
+  FileText,
 } from 'lucide-react';
 
 import { db, seedInitialData } from './lib/db';
@@ -44,6 +46,7 @@ import {
 } from './lib/backupEngine';
 import { calculateGamification } from './lib/gamification';
 import { generateWeeklyReviewAnalysis } from './lib/weeklyReviewEngine';
+import { parseStudyDocument } from './lib/documentParser';
 import type { SessionMode, StudySession, WeeklyReview } from './types';
 
 export function App() {
@@ -1201,9 +1204,54 @@ export function App() {
               </div>
             </header>
 
+            {/* Importador Inteligente de Documentos / Calendário de Provas */}
+            <div className="bg-gradient-to-br from-indigo-50/70 via-white to-amber-50/50 p-6 rounded-3xl border border-indigo-100 shadow-xs space-y-3">
+              <div className="flex items-center gap-2">
+                <FileUp className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-extrabold text-slate-900 text-sm">
+                  Importar Documento de Estudos ou Calendário de Provas
+                </h3>
+              </div>
+              <p className="text-xs text-slate-600">
+                Envie um arquivo de texto, markdown ou ementa (`.txt`, `.md`, `.csv`). O FocusUp extrairá automaticamente
+                as matérias, datas de provas e tópicos da trilha para organizar sua rotina.
+              </p>
+
+              <div className="pt-1">
+                <label className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl cursor-pointer shadow-xs transition active:scale-95">
+                  <FileText className="w-4 h-4" />
+                  Selecionar Documento (.txt, .md, .csv)
+                  <input
+                    type="file"
+                    accept=".txt,.md,.csv,.text"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const text = await file.text();
+                      const result = parseStudyDocument(text, file.name);
+
+                      if (result.createdSubjects.length > 0) {
+                        await db.subjects.bulkAdd(result.createdSubjects);
+                      }
+                      if (result.createdTasks.length > 0) {
+                        await db.tasks.bulkAdd(result.createdTasks);
+                      }
+                      if (result.createdTracks.length > 0) {
+                        await db.learningPaths.bulkAdd(result.createdTracks);
+                      }
+
+                      triggerVictoryEffect();
+                      alert(result.summary);
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+
             {/* Cadastro de Disciplina da Faculdade */}
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
-              <h3 className="font-extrabold text-slate-900 text-sm">Adicionar Disciplina do Semestre</h3>
+              <h3 className="font-extrabold text-slate-900 text-sm">Adicionar Disciplina do Semestre Manualmente</h3>
               <form
                 onSubmit={async (e) => {
                   e.preventDefault();
