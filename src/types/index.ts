@@ -40,11 +40,17 @@ export interface LessonItem {
   type: 'lesson' | 'exercise' | 'project';
   completed: boolean;
   completedAt?: number;
+  estimatedMinutes?: number;
+  dueDate?: string; // YYYY-MM-DD
+  taskId?: string; // ID da tarefa vinculada na grade de tarefas do FocusUp
 }
 
 export interface ModuleItem {
   id: string;
   title: string;
+  description?: string;
+  targetWeek?: number; // Semana 1, 2, 3...
+  targetDate?: string; // YYYY-MM-DD
   items: LessonItem[];
 }
 
@@ -56,6 +62,9 @@ export interface LearningPath {
   level: 'beginner' | 'intermediate' | 'advanced';
   modules: ModuleItem[];
   subjectId?: string;
+  targetHoursPerWeek?: number; // Carga horária semanal desejada
+  startDate?: string; // YYYY-MM-DD de início dos estudos
+  targetEndDate?: string; // YYYY-MM-DD estimada de conclusão
   archived: boolean;
   createdAt: number;
   updatedAt: number;

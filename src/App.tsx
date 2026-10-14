@@ -46,6 +46,8 @@ import { HabitsCard } from './components/HabitsCard';
 import { HabitsSection } from './components/HabitsSection';
 import { WeeklyReportCard } from './components/WeeklyReportCard';
 import { WeeklyReportSection } from './components/WeeklyReportSection';
+import { LearningTracksSection } from './components/LearningTracksSection';
+import { syncTrackWithTaskStatus } from './lib/trackOrganizerEngine';
 import { getHabitLogForDate, getHabitStatusForDate } from './lib/habitEngine';
 import { GymSection } from './components/GymSection';
 import { db, seedInitialData } from './lib/db';
@@ -1034,6 +1036,16 @@ export function App() {
                               completedAt: newStatus === 'completed' ? Date.now() : undefined,
                               updatedAt: Date.now(),
                             });
+                            if (t.learningPathId) {
+                              const lp = await db.learningPaths.get(t.learningPathId);
+                              if (lp) {
+                                const updated = syncTrackWithTaskStatus(lp, t.id, newStatus === 'completed');
+                                await db.learningPaths.update(lp.id, {
+                                  modules: updated.modules,
+                                  updatedAt: Date.now(),
+                                });
+                              }
+                            }
                             if (newStatus === 'completed') triggerVictoryEffect();
                           }}
                           className={`w-5 h-5 rounded-lg border flex items-center justify-center transition ${
@@ -1389,118 +1401,12 @@ export function App() {
 
         {/* TAB: TRILHAS & MISSÕES */}
         {activeTab === 'tracks' && (
-          <div className="space-y-6">
-            <header>
-              <h2 className="text-2xl font-black text-slate-900">Árvores de Habilidade & Missões</h2>
-              <p className="text-xs text-slate-500 mt-1">Conquiste cada módulo para avançar em desenvolvimento de software.</p>
-            </header>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {learningPaths.map((path) => {
-                const totalItems = path.modules.reduce((acc, m) => acc + m.items.length, 0);
-                const completedItems = path.modules.reduce(
-                  (acc, m) => acc + m.items.filter((i) => i.completed).length,
-                  0
-                );
-                const pathProgress = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
-
-                return (
-                  <div key={path.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          {path.category} • {path.level.toUpperCase()}
-                        </span>
-                        <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg">
-                          {pathProgress}% concluído
-                        </span>
-                      </div>
-                      <h3 className="font-extrabold text-slate-900 text-lg mt-2">{path.title}</h3>
-                      <p className="text-xs text-slate-500 mt-1">{path.description}</p>
-                      
-                      {/* Barra de Progresso da Trilha */}
-                      <div className="w-full bg-slate-100 h-2 rounded-full mt-3 overflow-hidden">
-                        <div
-                          className="bg-indigo-600 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${pathProgress}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-3 pt-2">
-                      {path.modules.map((mod) => (
-                        <div key={mod.id} className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
-                          <div className="font-bold text-xs text-slate-800">{mod.title}</div>
-                          <div className="space-y-1.5">
-                            {mod.items.map((item) => (
-                              <div
-                                key={item.id}
-                                className="flex items-center justify-between text-xs p-2 rounded-xl bg-white border border-slate-200/80 shadow-2xs"
-                              >
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    onClick={async () => {
-                                      const updatedModules = path.modules.map((m) => {
-                                        if (m.id !== mod.id) return m;
-                                        return {
-                                          ...m,
-                                          items: m.items.map((it) => {
-                                            if (it.id !== item.id) return it;
-                                            return {
-                                              ...it,
-                                              completed: !it.completed,
-                                              completedAt: !it.completed ? Date.now() : undefined,
-                                            };
-                                          }),
-                                        };
-                                      });
-                                      await db.learningPaths.update(path.id, {
-                                        modules: updatedModules,
-                                        updatedAt: Date.now(),
-                                      });
-                                      if (!item.completed) triggerVictoryEffect();
-                                    }}
-                                    className={`w-4 h-4 rounded-md border flex items-center justify-center transition ${
-                                      item.completed
-                                        ? 'bg-emerald-600 border-emerald-600 text-white'
-                                        : 'border-slate-300 hover:border-indigo-500'
-                                    }`}
-                                  >
-                                    {item.completed && <CheckCircle2 className="w-3 h-3 stroke-[3]" />}
-                                  </button>
-                                  <span
-                                    className={`font-medium ${
-                                      item.completed ? 'line-through text-slate-400' : 'text-slate-800'
-                                    }`}
-                                  >
-                                    {item.title}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[9px] uppercase font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
-                                    {item.type}
-                                  </span>
-                                  {!item.completed && (
-                                    <button
-                                      onClick={() => prepareTimer('pomodoro', 25, path.subjectId)}
-                                      className="text-[10px] font-bold text-slate-500 hover:text-indigo-600 p-1"
-                                      title="Focar nesta aula"
-                                    >
-                                      <Play className="w-3 h-3 fill-current" />
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <LearningTracksSection
+            learningPaths={learningPaths}
+            subjects={uniqueSubjects}
+            onStartFocus={prepareTimer}
+            onTriggerVictory={triggerVictoryEffect}
+          />
         )}
 
         {/* TAB: FACULDADE (MATÉRIAS ACADÊMICAS, NOTAS & GRADE HORÁRIA) */}
