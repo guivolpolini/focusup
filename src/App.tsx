@@ -56,7 +56,7 @@ import {
 } from './lib/backupEngine';
 import { calculateGamification } from './lib/gamification';
 import { generateWeeklyReviewAnalysis } from './lib/weeklyReviewEngine';
-import { parseStudyDocument } from './lib/documentParser';
+import { parseStudyDocument, type ParsedDocumentResult } from './lib/documentParser';
 import { extractTextFromPDF } from './lib/pdfParser';
 import { extractTextFromImage } from './lib/ocrParser';
 import { parseWithFreeLLM } from './lib/freellmClient';
@@ -120,6 +120,8 @@ export function App() {
   const [isImporting, setIsImporting] = useState(false);
   const [importStatusMessage, setImportStatusMessage] = useState<string>('');
   const [pastedText, setPastedText] = useState('');
+  const [pendingImportResult, setPendingImportResult] = useState<ParsedDocumentResult | null>(null);
+  const [editableImportText, setEditableImportText] = useState<string>('');
 
   // Flashcards para revisão hoje
   const todayStr = formatDateToLocalYYYYMMDD(new Date());
@@ -1955,19 +1957,9 @@ export function App() {
                               const buffer = await file.arrayBuffer();
                               const pdfText = await extractTextFromPDF(buffer);
                               setImportStatusMessage('Extraindo matérias e datas de provas...');
-                              let result = parseStudyDocument(pdfText, file.name);
-
-                              if (result.createdSubjects.length > 0) {
-                                await db.subjects.bulkAdd(result.createdSubjects);
-                                for (const s of result.createdSubjects) {
-                                  await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
-                                }
-                              }
-                              if (result.createdTasks.length > 0) await db.tasks.bulkAdd(result.createdTasks);
-                              if (result.createdTracks.length > 0) await db.learningPaths.bulkAdd(result.createdTracks);
-
-                              triggerVictoryEffect();
-                              alert(result.summary);
+                              const result = parseStudyDocument(pdfText, file.name);
+                              setPendingImportResult(result);
+                              setEditableImportText(result.rawText || pdfText);
                             } else if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
                               setImportStatusMessage('Inicializando OCR WebAssembly no navegador...');
                               let ocrText = '';
@@ -1982,58 +1974,35 @@ export function App() {
                               // Se OCR falhou ou retornou pouco texto, tentar FreeLLMAPI local
                               if (!ocrText || ocrText.trim().length < 15) {
                                 setImportStatusMessage('Testando IA Local (FreeLLMAPI)...');
-                                const reader = new FileReader();
-                                const base64Promise = new Promise<string>((res) => {
-                                  reader.onload = () => res(reader.result as string);
-                                  reader.readAsDataURL(file);
-                                });
-                                const b64 = await base64Promise;
-                                const aiRes = await parseWithFreeLLM({ imageBase64: b64 });
-                                if (aiRes && (aiRes.createdSubjects.length > 0 || aiRes.createdTasks.length > 0)) {
-                                  if (aiRes.createdSubjects.length > 0) {
-                                    await db.subjects.bulkAdd(aiRes.createdSubjects);
-                                    for (const s of aiRes.createdSubjects) {
-                                      await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
-                                    }
+                                try {
+                                  const reader = new FileReader();
+                                  const base64Promise = new Promise<string>((res) => {
+                                    reader.onload = () => res(reader.result as string);
+                                    reader.readAsDataURL(file);
+                                  });
+                                  const b64 = await base64Promise;
+                                  const aiRes = await parseWithFreeLLM({ imageBase64: b64 });
+                                  if (aiRes && (aiRes.createdSubjects.length > 0 || aiRes.createdTasks.length > 0)) {
+                                    setPendingImportResult(aiRes);
+                                    setEditableImportText(aiRes.rawText || JSON.stringify(aiRes, null, 2));
+                                    return;
                                   }
-                                  if (aiRes.createdTasks.length > 0) await db.tasks.bulkAdd(aiRes.createdTasks);
-                                  if (aiRes.createdTracks.length > 0) await db.learningPaths.bulkAdd(aiRes.createdTracks);
-                                  triggerVictoryEffect();
-                                  alert(aiRes.summary);
-                                  return;
+                                } catch (e) {
+                                  console.warn('FreeLLM indisponível:', e);
                                 }
                               }
 
                               setImportStatusMessage('Organizando dados reconhecidos...');
-                              let result = parseStudyDocument(ocrText, file.name);
-                              if (result.createdSubjects.length > 0) {
-                                await db.subjects.bulkAdd(result.createdSubjects);
-                                for (const s of result.createdSubjects) {
-                                  await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
-                                }
-                              }
-                              if (result.createdTasks.length > 0) await db.tasks.bulkAdd(result.createdTasks);
-                              if (result.createdTracks.length > 0) await db.learningPaths.bulkAdd(result.createdTracks);
-
-                              triggerVictoryEffect();
-                              alert(result.summary);
+                              const result = parseStudyDocument(ocrText, file.name);
+                              setPendingImportResult(result);
+                              setEditableImportText(result.rawText || ocrText);
                             } else {
                               // Texto, MD, CSV, TSV, JSON, ICS
                               setImportStatusMessage('Lendo arquivo de dados...');
                               const text = await file.text();
-                              let result = parseStudyDocument(text, file.name);
-
-                              if (result.createdSubjects.length > 0) {
-                                await db.subjects.bulkAdd(result.createdSubjects);
-                                for (const s of result.createdSubjects) {
-                                  await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
-                                }
-                              }
-                              if (result.createdTasks.length > 0) await db.tasks.bulkAdd(result.createdTasks);
-                              if (result.createdTracks.length > 0) await db.learningPaths.bulkAdd(result.createdTracks);
-
-                              triggerVictoryEffect();
-                              alert(result.summary);
+                              const result = parseStudyDocument(text, file.name);
+                              setPendingImportResult(result);
+                              setEditableImportText(result.rawText || text);
                             }
                           } catch (err: any) {
                             alert(`Falha na importação: ${err.message || err}`);
@@ -2070,35 +2039,17 @@ export function App() {
                   <div className="flex justify-end">
                     <button
                       disabled={!pastedText.trim() || isImporting}
-                      onClick={async () => {
+                      onClick={() => {
                         if (!pastedText.trim()) return;
-                        setIsImporting(true);
-                        setImportStatusMessage('Analisando texto colado...');
-                        try {
-                          let result = parseStudyDocument(pastedText, 'texto-colado.txt');
-                          if (result.createdSubjects.length > 0) {
-                            await db.subjects.bulkAdd(result.createdSubjects);
-                            for (const s of result.createdSubjects) {
-                              await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
-                            }
-                          }
-                          if (result.createdTasks.length > 0) await db.tasks.bulkAdd(result.createdTasks);
-                          if (result.createdTracks.length > 0) await db.learningPaths.bulkAdd(result.createdTracks);
-
-                          setPastedText('');
-                          triggerVictoryEffect();
-                          alert(result.summary);
-                        } catch (err: any) {
-                          alert(`Erro ao processar texto: ${err.message || err}`);
-                        } finally {
-                          setIsImporting(false);
-                          setImportStatusMessage('');
-                        }
+                        const result = parseStudyDocument(pastedText, 'Texto Colado');
+                        setPendingImportResult(result);
+                        setEditableImportText(result.rawText || pastedText);
+                        setPastedText('');
                       }}
                       className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-xs transition active:scale-95"
                     >
                       <FileText className="w-3.5 h-3.5" />
-                      Processar Texto Colado
+                      Revisar e Processar Texto
                     </button>
                   </div>
                 </div>
@@ -2319,6 +2270,204 @@ export function App() {
                 </div>
               );
             })()}
+
+            {/* MODAL: REVISÃO E CONFIRMAÇÃO DE IMPORTAÇÃO (OCR / PDF / DOCUMENTOS) */}
+            {pendingImportResult && (
+              <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+                <div className="bg-white max-w-2xl w-full rounded-3xl p-6 shadow-2xl border border-slate-200 space-y-5 max-h-[92vh] overflow-y-auto">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-slate-900 text-base">
+                          Revisão de Importação Inteligente
+                        </h3>
+                        <p className="text-[11px] text-slate-500">
+                          Confira os dados detectados e ajuste o texto se o OCR da foto cometeu algum erro de leitura.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setPendingImportResult(null)}
+                      className="text-slate-400 hover:text-slate-700 font-black text-lg p-1.5 rounded-lg hover:bg-slate-100 transition"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {/* Resumo Rápido em Chips */}
+                  <div className="grid grid-cols-3 gap-2.5 font-mono text-center">
+                    <div className="bg-indigo-50/70 border border-indigo-100 p-2.5 rounded-2xl">
+                      <div className="text-[10px] text-indigo-600 font-bold uppercase">Disciplinas</div>
+                      <div className="text-lg font-black text-indigo-900">
+                        {pendingImportResult.createdSubjects.length}
+                      </div>
+                    </div>
+                    <div className="bg-amber-50/70 border border-amber-100 p-2.5 rounded-2xl">
+                      <div className="text-[10px] text-amber-600 font-bold uppercase">Provas / Prazos</div>
+                      <div className="text-lg font-black text-amber-900">
+                        {pendingImportResult.createdTasks.length}
+                      </div>
+                    </div>
+                    <div className="bg-emerald-50/70 border border-emerald-100 p-2.5 rounded-2xl">
+                      <div className="text-[10px] text-emerald-600 font-bold uppercase">Tópicos / Trilhas</div>
+                      <div className="text-lg font-black text-emerald-900">
+                        {pendingImportResult.createdTracks.reduce((acc, t) => acc + (t.modules[0]?.items?.length || 0), 0)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Editor do Texto Extraído pelo OCR / Documento */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5 text-slate-500" />
+                        Texto Reconhecido pelo Scanner / OCR (Editável):
+                      </label>
+                      <button
+                        onClick={() => {
+                          const reprocessed = parseStudyDocument(
+                            editableImportText,
+                            pendingImportResult.createdSubjects[0]?.name || 'documento.txt'
+                          );
+                          setPendingImportResult(reprocessed);
+                        }}
+                        className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        Reprocessar Texto
+                      </button>
+                    </div>
+                    <textarea
+                      rows={6}
+                      value={editableImportText}
+                      onChange={(e) => setEditableImportText(e.target.value)}
+                      placeholder="Texto extraído pelo scanner..."
+                      className="w-full text-xs p-3.5 rounded-2xl border border-slate-200 bg-slate-50 font-mono text-slate-800 focus:bg-white focus:border-indigo-500 focus:outline-hidden resize-y"
+                    />
+                    <div className="text-[10px] text-slate-400 leading-tight">
+                      💡 <b>Dica:</b> Se o scanner da foto confundiu algum número de data (ex: 15/11 ou 2026-11-15) ou cortou o nome da disciplina, você pode digitar ou corrigir no campo acima e clicar em <b>Reprocessar Texto</b>.
+                    </div>
+                  </div>
+
+                  {/* Prévia dos Dados Extraídos */}
+                  <div className="space-y-3 border-t border-slate-100 pt-3">
+                    <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                      O que será cadastrado no FocusUp:
+                    </h4>
+
+                    {pendingImportResult.createdSubjects.length === 0 && pendingImportResult.createdTasks.length === 0 && (
+                      <div className="p-4 rounded-2xl bg-slate-50 text-slate-500 text-xs text-center border border-dashed border-slate-200">
+                        Nenhuma matéria ou data de prova foi detectada automaticamente. Adicione no texto acima uma matéria e datas (ex: <code>Cálculo II | P1 | 15/11</code>) e clique em <b>Reprocessar Texto</b>.
+                      </div>
+                    )}
+
+                    {/* Matérias Detectadas */}
+                    {pendingImportResult.createdSubjects.length > 0 && (
+                      <div className="space-y-1.5">
+                        <div className="text-[11px] font-bold text-slate-600">
+                          Disciplinas ({pendingImportResult.createdSubjects.length}):
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {pendingImportResult.createdSubjects.map((s, idx) => (
+                            <div
+                              key={s.id || idx}
+                              className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-800 border border-slate-200"
+                            >
+                              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
+                              <span>{s.name}</span>
+                              {s.deadline && (
+                                <span className="text-[10px] text-indigo-600 font-mono bg-white px-1.5 py-0.5 rounded-md border border-slate-200">
+                                  {s.deadline}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Provas e Prazos Detectados */}
+                    {pendingImportResult.createdTasks.length > 0 && (
+                      <div className="space-y-1.5">
+                        <div className="text-[11px] font-bold text-slate-600">
+                          Provas e Entregas ({pendingImportResult.createdTasks.length}):
+                        </div>
+                        <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
+                          {pendingImportResult.createdTasks.map((t, idx) => (
+                            <div
+                              key={t.id || idx}
+                              className="flex items-center justify-between bg-amber-50/60 border border-amber-200/60 p-2.5 rounded-xl text-xs"
+                            >
+                              <span className="font-bold text-slate-800 truncate pr-2">{t.title}</span>
+                              <span className="font-mono text-[10px] font-black text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-md shrink-0">
+                                {t.dueDate || 'Sem data'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Trilhas Detectadas */}
+                    {pendingImportResult.createdTracks.length > 0 && (
+                      <div className="space-y-1.5">
+                        <div className="text-[11px] font-bold text-slate-600">
+                          Trilhas de Conteúdo ({pendingImportResult.createdTracks.length}):
+                        </div>
+                        <div className="space-y-1 text-xs">
+                          {pendingImportResult.createdTracks.map((tr, idx) => (
+                            <div key={tr.id || idx} className="p-2 bg-emerald-50/60 border border-emerald-200/60 rounded-xl">
+                              <div className="font-bold text-emerald-900">{tr.title}</div>
+                              <div className="text-[10px] text-emerald-700">
+                                {tr.modules[0]?.items?.length || 0} tópico(s) identificado(s) na ementa
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Ações Finais */}
+                  <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                    <button
+                      onClick={() => setPendingImportResult(null)}
+                      className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition"
+                    >
+                      Descartar
+                    </button>
+                    <button
+                      disabled={pendingImportResult.createdSubjects.length === 0 && pendingImportResult.createdTasks.length === 0}
+                      onClick={async () => {
+                        if (pendingImportResult.createdSubjects.length > 0) {
+                          await db.subjects.bulkAdd(pendingImportResult.createdSubjects);
+                          for (const s of pendingImportResult.createdSubjects) {
+                            await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
+                          }
+                        }
+                        if (pendingImportResult.createdTasks.length > 0) {
+                          await db.tasks.bulkAdd(pendingImportResult.createdTasks);
+                        }
+                        if (pendingImportResult.createdTracks.length > 0) {
+                          await db.learningPaths.bulkAdd(pendingImportResult.createdTracks);
+                        }
+
+                        triggerVictoryEffect();
+                        setPendingImportResult(null);
+                        setCollegeSubTab('disciplines');
+                      }}
+                      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-extrabold text-xs px-6 py-2.5 rounded-xl shadow-xs transition active:scale-95"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      Confirmar e Salvar no FocusUp
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

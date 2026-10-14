@@ -5,12 +5,13 @@ export interface ParsedDocumentResult {
   createdSubjects: Subject[];
   createdTasks: Task[];
   createdTracks: LearningPath[];
+  rawText?: string;
   summary: string;
 }
 
 /**
  * Parser determinístico local que lê arquivos de texto / markdown / csv / tsv / json / ical (.ics)
- * e extrai automaticamente matérias, datas de provas e trilhas de estudo.
+ * e fotos/prints de cronogramas acadêmicos, extraindo matérias, datas de provas e trilhas.
  * 100% offline e no cliente.
  */
 export function parseStudyDocument(content: string, filename: string): ParsedDocumentResult {
@@ -18,20 +19,26 @@ export function parseStudyDocument(content: string, filename: string): ParsedDoc
 
   // 1. Detectar se é arquivo iCalendar (.ics)
   if (trimmed.includes('BEGIN:VCALENDAR') || trimmed.includes('BEGIN:VEVENT')) {
-    return parseICalendar(trimmed, filename);
+    const res = parseICalendar(trimmed, filename);
+    res.rawText = content;
+    return res;
   }
 
   // 2. Detectar se é JSON (.json)
   if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
     try {
-      return parseJsonDocument(trimmed, filename);
+      const res = parseJsonDocument(trimmed, filename);
+      res.rawText = content;
+      return res;
     } catch {
       // Seguir para parser de texto se JSON for inválido
     }
   }
 
-  // 3. Parser de texto / markdown / csv / tsv padrão
-  return parseTextLines(content, filename);
+  // 3. Parser de linhas de texto (com suporte avançado a tabelas, OCR e fotos)
+  const res = parseTextLines(content, filename);
+  res.rawText = content;
+  return res;
 }
 
 function parseICalendar(content: string, filename: string): ParsedDocumentResult {
@@ -190,86 +197,196 @@ function parseJsonDocument(content: string, filename: string): ParsedDocumentRes
   };
 }
 
-function parseTextLines(content: string, filename: string): ParsedDocumentResult {
-  const lines = content.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
-  const now = Date.now();
+/**
+ * Normaliza e padroniza datas em texto (YYYY-MM-DD, DD/MM/YYYY ou DD/MM)
+ */
+function normalizeDate(rawDateStr: string): string | null {
+  const currentYear = new Date().getFullYear();
 
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawDateStr)) {
+    return rawDateStr;
+  }
+
+  // DD/MM/YYYY
+  const dmyMatch = rawDateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (dmyMatch) {
+    const day = dmyMatch[1].padStart(2, '0');
+    const month = dmyMatch[2].padStart(2, '0');
+    let year = dmyMatch[3];
+    if (year.length === 2) year = `20${year}`;
+    return `${year}-${month}-${day}`;
+  }
+
+  // DD/MM (sem ano)
+  const dmMatch = rawDateStr.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (dmMatch) {
+    const day = dmMatch[1].padStart(2, '0');
+    const month = dmMatch[2].padStart(2, '0');
+    return `${currentYear}-${month}-${day}`;
+  }
+
+  return null;
+}
+
+function parseTextLines(content: string, filename: string): ParsedDocumentResult {
+  const lines = content
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  const now = Date.now();
   const createdSubjects: Subject[] = [];
   const createdTasks: Task[] = [];
   const createdTracks: LearningPath[] = [];
 
-  const dateRegex = /(\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4})/;
+  // Regex de data flexível (DD/MM/YYYY, DD/MM ou YYYY-MM-DD)
+  const dateRegex = /(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4}|\b\d{1,2}\/\d{1,2}\b)/;
+
+  // Regex para termos acadêmicos típicos
+  const academicSubjectKeywords =
+    /^(?:Cálculo|Engenharia|Física|Química|Algoritmos|Programação|Estruturas?|Bancos? de Dados|Sistemas?|Redes?|Inteligência Artificial|Direito|Economia|Administração|Contabilidade|Filosofia|Sociologia|Metodologia|Pesquisa|Arquitetura|Design|Segurança|Compiladores|Teoria da Computação|Estatística|Probabilidade|Matemática|Álgebra|Desenvolvimento|Web|Mobile|Software)/i;
+
   let currentSubject: Subject | null = null;
   let currentTrack: LearningPath | null = null;
 
-  for (const line of lines) {
-    // 1. Detectar cabeçalho de matéria (ex: "# Cálculo II", "Matéria: Banco de Dados", ou "Disciplina: Redes")
-    const subjectMatch = line.match(/^(?:#+\s*|(?:Matéria|Disciplina|Curso):\s*)([A-Za-z0-9À-ÿ\s\-\_]+)/i);
-    if (subjectMatch) {
-      const subjectName = subjectMatch[1].trim();
-      currentSubject = {
-        id: `sub-doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        name: subjectName,
-        color: '#6366f1',
-        priority: 'high',
-        category: 'college',
-        targetMinutesPerWeek: 120,
-        archived: false,
-        createdAt: now,
-        updatedAt: now,
-      };
-      createdSubjects.push(currentSubject);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
 
-      currentTrack = {
-        id: `track-doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        title: `Trilha: ${subjectName}`,
-        description: `Trilha de estudos importada do documento ${filename}`,
-        category: 'Acadêmico',
-        level: 'intermediate',
-        subjectId: currentSubject.id,
-        modules: [{ id: `mod-1`, title: 'Conteúdo Programático', items: [] }],
-        archived: false,
-        createdAt: now,
-        updatedAt: now,
-      };
-      createdTracks.push(currentTrack);
-      continue;
+    // Ignorar linhas puramente decorativas (ex: "====", "----", "____")
+    if (/^[=\-_*#\s]{3,}$/.test(line)) continue;
+
+    // 1. Detectar cabeçalho explícito de matéria (#, Matéria:, Disciplina:, Curso:)
+    const explicitSubjectMatch = line.match(
+      /^(?:#+\s*|(?:Matéria|Disciplina|Curso|Componente):\s*)([A-Za-z0-9À-ÿ\s\-\_]+)/i
+    );
+
+    // 2. Detectar se a linha é um título de matéria pelo vocabulário acadêmico (sem data)
+    const isAcademicKeyword = !dateRegex.test(line) && academicSubjectKeywords.test(line);
+
+    // 3. Detectar se a linha parece um título (curta, sem pontuação final, sem data, primeiras palavras com maiúscula)
+    const isLikelyTitle =
+      !dateRegex.test(line) &&
+      line.length >= 3 &&
+      line.length <= 40 &&
+      !line.startsWith('-') &&
+      !line.startsWith('*') &&
+      !line.startsWith('•') &&
+      !/^\d+\./.test(line) &&
+      !line.toLowerCase().includes('horário') &&
+      !line.toLowerCase().includes('calendário') &&
+      (i === 0 || explicitSubjectMatch || isAcademicKeyword);
+
+    if (explicitSubjectMatch || isAcademicKeyword || (isLikelyTitle && createdSubjects.length === 0)) {
+      const subjectName = (explicitSubjectMatch ? explicitSubjectMatch[1] : line)
+        .replace(/^[#*•:\s]+/, '')
+        .trim();
+
+      if (subjectName.length > 2 && !createdSubjects.some((s) => s.name.toLowerCase() === subjectName.toLowerCase())) {
+        currentSubject = {
+          id: `sub-doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          name: subjectName,
+          color: '#4f46e5',
+          priority: 'high',
+          category: 'college',
+          targetMinutesPerWeek: 120,
+          archived: false,
+          createdAt: now,
+          updatedAt: now,
+        };
+        createdSubjects.push(currentSubject);
+
+        currentTrack = {
+          id: `track-doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          title: `Trilha: ${subjectName}`,
+          description: `Importada de ${filename}`,
+          category: 'Acadêmico',
+          level: 'intermediate',
+          subjectId: currentSubject.id,
+          modules: [{ id: `mod-1`, title: 'Conteúdo Programático', items: [] }],
+          archived: false,
+          createdAt: now,
+          updatedAt: now,
+        };
+        createdTracks.push(currentTrack);
+        continue;
+      }
     }
 
-    // 2. Detectar se há data de prova ou entrega de trabalho na linha
+    // 4. Detectar linhas que contêm data de prova ou entrega de trabalho
     const dateMatch = line.match(dateRegex);
     if (dateMatch) {
-      let formattedDate = dateMatch[1];
-      if (formattedDate.includes('/')) {
-        const [d, m, y] = formattedDate.split('/');
-        formattedDate = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      const rawDate = dateMatch[1];
+      const normalizedDate = normalizeDate(rawDate);
+
+      if (normalizedDate) {
+        // Remover a data da linha para obter o nome da avaliação
+        let taskTitle = line.replace(dateRegex, '').replace(/^[-*•:|#\s]+/, '').replace(/[-:|#\s]+$/, '').trim();
+
+        // Se a linha tiver separador "|" ou "-", tentar extrair matéria da mesma linha
+        // Ex: "Cálculo II | P1 | 15/11" ou "15/11 - Engenharia de Software - P1"
+        if (line.includes('|') || line.includes(' - ')) {
+          const parts = line.split(/[|\-]|\s{2,}/).map((p) => p.trim()).filter((p) => p.length > 0);
+          const nonDateParts = parts.filter((p) => !dateRegex.test(p));
+
+          if (nonDateParts.length >= 2) {
+            // Um é matéria, outro é prova
+            const possibleSubName = nonDateParts[0];
+            const possibleExamName = nonDateParts.slice(1).join(' - ');
+
+            // Se ainda não temos essa matéria, criar
+            let existingSub = createdSubjects.find(
+              (s) => s.name.toLowerCase() === possibleSubName.toLowerCase()
+            );
+            if (!existingSub) {
+              existingSub = {
+                id: `sub-doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                name: possibleSubName,
+                color: '#4f46e5',
+                priority: 'high',
+                category: 'college',
+                targetMinutesPerWeek: 120,
+                deadline: normalizedDate,
+                archived: false,
+                createdAt: now,
+                updatedAt: now,
+              };
+              createdSubjects.push(existingSub);
+            }
+            currentSubject = existingSub;
+            taskTitle = possibleExamName;
+          }
+        }
+
+        if (!taskTitle) taskTitle = 'Avaliação / Prova';
+
+        const task: Task = {
+          id: `task-doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          title: taskTitle,
+          dueDate: normalizedDate,
+          subjectId: currentSubject ? currentSubject.id : 'sub-college-fallback',
+          priority: 'high',
+          estimatedMinutes: 60,
+          actualStudiedMinutes: 0,
+          status: 'pending',
+          createdAt: now,
+          updatedAt: now,
+        };
+        createdTasks.push(task);
+
+        if (currentSubject && !currentSubject.deadline) {
+          currentSubject.deadline = normalizedDate;
+        }
+        continue;
       }
-
-      const taskTitle = line.replace(dateRegex, '').replace(/^[-*•:]\s*/, '').trim() || 'Avaliação / Entrega';
-
-      const task: Task = {
-        id: `task-doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        title: taskTitle,
-        dueDate: formattedDate,
-        subjectId: currentSubject ? currentSubject.id : 'sub-college-default',
-        priority: 'high',
-        estimatedMinutes: 60,
-        actualStudiedMinutes: 0,
-        status: 'pending',
-        createdAt: now,
-        updatedAt: now,
-      };
-      createdTasks.push(task);
-
-      if (currentSubject && !currentSubject.deadline) {
-        currentSubject.deadline = formattedDate;
-      }
-      continue;
     }
 
-    // 3. Detectar tópicos/aulas da trilha (linhas com marcadores "-", "*", "•", ou "1.")
-    if (currentTrack && (line.startsWith('-') || line.startsWith('*') || line.startsWith('•') || /^\d+\./.test(line))) {
-      const topicTitle = line.replace(/^[-*•\d.]+\s*/, '').trim();
+    // 5. Detectar tópicos da trilha (linhas com marcadores "-", "*", "•", ou numeração "1.")
+    if (
+      currentTrack &&
+      (line.startsWith('-') || line.startsWith('*') || line.startsWith('•') || /^\d+[\.\)]\s*/.test(line))
+    ) {
+      const topicTitle = line.replace(/^[-*•\d.\)]+\s*/, '').trim();
       if (topicTitle.length > 2) {
         currentTrack.modules[0].items.push({
           id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -285,11 +402,36 @@ function parseTextLines(content: string, filename: string): ParsedDocumentResult
     }
   }
 
+  // 6. Salvaguarda: se foram encontradas tarefas/provas ou tópicos mas nenhuma matéria foi criada
+  if (createdSubjects.length === 0 && (createdTasks.length > 0 || createdTracks.length > 0)) {
+    const cleanFileName = filename.replace(/\.[^/.]+$/, '').replace(/whatsapp\s*image/i, 'Faculdade');
+    const fallbackSubject: Subject = {
+      id: `sub-doc-${Date.now()}-fallback`,
+      name: cleanFileName || 'Minha Disciplina',
+      color: '#4f46e5',
+      priority: 'high',
+      category: 'college',
+      targetMinutesPerWeek: 120,
+      deadline: createdTasks[0]?.dueDate,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    createdSubjects.push(fallbackSubject);
+
+    // Associar tarefas órfãs à matéria criada
+    for (const t of createdTasks) {
+      if (t.subjectId === 'sub-college-fallback') {
+        t.subjectId = fallbackSubject.id;
+      }
+    }
+  }
+
   return {
     detectedType: createdTasks.length > 0 ? 'calendar' : createdTracks.length > 0 ? 'syllabus' : 'general',
     createdSubjects,
     createdTasks,
     createdTracks: createdTracks.filter((t) => t.modules[0].items.length > 0),
-    summary: `Documento importado (${filename}): ${createdSubjects.length} matérias, ${createdTasks.length} prazos/provas e ${createdTracks.length} trilhas identificadas.`,
+    summary: `Documento processado (${filename}): ${createdSubjects.length} matéria(s), ${createdTasks.length} prazo(s) e ${createdTracks.length} trilha(s) identificada(s).`,
   };
 }

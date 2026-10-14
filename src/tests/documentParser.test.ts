@@ -84,4 +84,33 @@ END:VCALENDAR
     expect(result.createdTracks.length).toBe(1);
     expect(result.createdTracks[0].modules[0].items.length).toBe(3);
   });
+
+  it('extrai matérias e provas com datas brasileiras DD/MM e tabelas OCR', () => {
+    const ocrText = `
+      Cálculo II | P1 | 15/11
+      Cálculo II | P2 | 10/12
+      Física Teórica | Prova Semestral | 28/11
+    `;
+
+    const result = parseStudyDocument(ocrText, 'WhatsApp Image 2026-10-13.jpeg');
+
+    expect(result.createdSubjects.length).toBeGreaterThanOrEqual(2);
+    expect(result.createdSubjects.some((s) => s.name.includes('Cálculo'))).toBe(true);
+    expect(result.createdSubjects.some((s) => s.name.includes('Física'))).toBe(true);
+    expect(result.createdTasks.length).toBe(3);
+    expect(result.createdTasks[0].dueDate).toMatch(/^\d{4}-11-15$/);
+  });
+
+  it('cria matéria fallback e tarefas quando não há cabeçalho explícito', () => {
+    const plainSchedule = `
+      P1 de Algoritmos - 20/11
+      Entrega do Trabalho 1 - 25/11
+    `;
+
+    const result = parseStudyDocument(plainSchedule, 'WhatsApp Image 2026-10-13.jpeg');
+
+    expect(result.createdSubjects.length).toBe(1);
+    expect(result.createdTasks.length).toBe(2);
+    expect(result.createdTasks[0].subjectId).toBe(result.createdSubjects[0].id);
+  });
 });
