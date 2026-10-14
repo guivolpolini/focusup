@@ -339,3 +339,130 @@ export interface ActiveWorkoutState {
   } | null;
 }
 
+// ============================================================================
+// MÓDULO RASTREADOR DE HÁBITOS
+// ============================================================================
+export type HabitFrequencyType = 'daily' | 'specific_days' | 'times_per_week';
+export type HabitTargetType = 'boolean' | 'numeric';
+export type HabitCategory = 'estudos' | 'saude' | 'produtividade' | 'pessoal' | 'outro';
+
+export interface Habit {
+  id: string;
+  name: string;
+  description?: string;
+  icon: string; // ex: 'book', 'droplets', 'code', 'dumbbell', 'moon', 'flame', 'target', 'heart'
+  color: string; // hex color
+  category: HabitCategory;
+  frequencyType: HabitFrequencyType;
+  frequencyDays?: number[]; // [0..6] (0 = Dom, 1 = Seg, ..., 6 = Sáb)
+  frequencyTimesPerWeek?: number; // ex: 3 vezes por semana
+  targetType: HabitTargetType; // 'boolean' ou 'numeric'
+  targetValue?: number; // ex: 15 (minutos), 2000 (ml), 1 (leitura)
+  unit?: string; // ex: "min", "ml", "páginas", "vezes"
+  reminderTime?: string; // ex: "08:00"
+  startDate: string; // 'YYYY-MM-DD'
+  isArchived: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface HabitLog {
+  id: string; // Formato habitual: `${habitId}_${date}`
+  habitId: string;
+  date: string; // 'YYYY-MM-DD'
+  completed: boolean;
+  currentValue?: number;
+  targetValue?: number;
+  notes?: string;
+  completedAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ============================================================================
+// MÓDULO RELATÓRIO SEMANAL
+// ============================================================================
+export interface WeeklyReportData {
+  weekStartStr: string; // 'YYYY-MM-DD' (Segunda-feira)
+  weekEndStr: string; // 'YYYY-MM-DD' (Domingo)
+  isCurrentWeek: boolean;
+
+  // Dimensão: Estudos
+  study: {
+    totalStudiedMinutes: number;
+    completedSessionsCount: number;
+    completedTasksCount: number;
+    subjectsStudiedCount: number;
+    weeklyGoalMinutes: number;
+    goalProgressPercent: number;
+    timeBySubject: {
+      subjectId: string;
+      subjectName: string;
+      color: string;
+      minutes: number;
+      percentage: number;
+    }[];
+    timeByDay: {
+      dayOfWeek: number; // 1 = Seg .. 0 = Dom
+      dayLabel: string;
+      dateStr: string;
+      minutes: number;
+      sessionsCount: number;
+    }[];
+  };
+
+  // Dimensão: Academia
+  gym: {
+    completedWorkoutsCount: number;
+    totalDurationMinutes: number;
+    totalVolumeKg: number;
+    weeklyGoalDays: number;
+    goalProgressPercent: number;
+    workoutsByDay: {
+      dateStr: string;
+      dayLabel: string;
+      workoutName: string;
+      durationMinutes: number;
+      totalVolumeKg: number;
+    }[];
+  };
+
+  // Dimensão: Hábitos
+  habits: {
+    scheduledCount: number;
+    completedCount: number;
+    overallCompletionRate: number; // 0..100%
+    habitSummaries: {
+      habitId: string;
+      habitName: string;
+      category: HabitCategory;
+      color: string;
+      scheduledDays: number;
+      completedDays: number;
+      completionRate: number;
+    }[];
+    bestConsistencyHabits: string[];
+    needsAttentionHabits: string[];
+  };
+
+  // Dimensão: Metas Gerais
+  goals: {
+    studyMet: boolean;
+    gymMet: boolean;
+    habitsMet: boolean;
+    totalGoalsCount: number;
+    metGoalsCount: number;
+  };
+}
+
+export interface WeeklyComparison {
+  hasPreviousData: boolean;
+  isPartialWeek: boolean;
+  studyMinutesDiff: number;
+  studyMinutesPercentChange: number; // ex: +15, -20
+  sessionsCountDiff: number;
+  tasksCountDiff: number;
+  gymWorkoutsDiff: number;
+  habitsCompletionRateDiff: number; // ex: +5 (pontos percentuais)
+}
+

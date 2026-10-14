@@ -16,6 +16,8 @@ import type {
   GymWorkout,
   GymMeasurement,
   GymPreferences,
+  Habit,
+  HabitLog,
 } from '../types';
 
 export class FocusUpDatabase extends Dexie {
@@ -35,6 +37,8 @@ export class FocusUpDatabase extends Dexie {
   gymWorkouts!: Table<GymWorkout, string>;
   gymMeasurements!: Table<GymMeasurement, string>;
   gymPreferences!: Table<GymPreferences, string>;
+  habits!: Table<Habit, string>;
+  habitLogs!: Table<HabitLog, string>;
 
   constructor() {
     super('FocusUpDB');
@@ -62,6 +66,11 @@ export class FocusUpDatabase extends Dexie {
       gymWorkouts: 'id, routineId, status, startedAt, endedAt, createdAt, updatedAt',
       gymMeasurements: 'id, date, createdAt, updatedAt',
       gymPreferences: 'id, updatedAt',
+    });
+
+    this.version(4).stores({
+      habits: 'id, name, category, frequencyType, isArchived, createdAt, updatedAt',
+      habitLogs: 'id, habitId, date, completed, createdAt, updatedAt',
     });
   }
 }

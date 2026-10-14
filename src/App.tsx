@@ -39,8 +39,14 @@ import {
   Loader2,
   Sparkles,
   Dumbbell,
+  CheckSquare,
 } from 'lucide-react';
 
+import { HabitsCard } from './components/HabitsCard';
+import { HabitsSection } from './components/HabitsSection';
+import { WeeklyReportCard } from './components/WeeklyReportCard';
+import { WeeklyReportSection } from './components/WeeklyReportSection';
+import { getHabitLogForDate, getHabitStatusForDate } from './lib/habitEngine';
 import { GymSection } from './components/GymSection';
 import { db, seedInitialData } from './lib/db';
 import {
@@ -82,7 +88,7 @@ import type {
 } from './types';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'tracks' | 'college' | 'gym' | 'schedule' | 'progress' | 'flashcards' | 'career' | 'settings'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'tracks' | 'college' | 'gym' | 'habits' | 'weekly_report' | 'schedule' | 'progress' | 'flashcards' | 'career' | 'settings'>('home');
   const [now, setNow] = useState(Date.now());
   const [currentReview, setCurrentReview] = useState<WeeklyReview | null>(null);
   const [currentSchedule, setCurrentSchedule] = useState<SchedulerOutput | null>(null);
@@ -117,6 +123,10 @@ export function App() {
   const gymWorkouts = useLiveQuery(() => db.gymWorkouts.toArray()) || [];
   const gymMeasurements = useLiveQuery(() => db.gymMeasurements.toArray()) || [];
   const gymPreferences = useLiveQuery(() => db.gymPreferences.get('gym_preferences'));
+
+  // Consultas Reativas do Rastreador de Hábitos
+  const habits = useLiveQuery(() => db.habits.toArray()) || [];
+  const habitLogs = useLiveQuery(() => db.habitLogs.toArray()) || [];
 
   // Sub-abas e modais do Portal da Faculdade
   const [collegeSubTab, setCollegeSubTab] = useState<'disciplines' | 'timetable' | 'import'>('disciplines');
@@ -522,6 +532,28 @@ export function App() {
             Academia
           </button>
           <button
+            onClick={() => setActiveTab('habits')}
+            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
+              activeTab === 'habits'
+                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <CheckSquare className="w-5 h-5 text-emerald-500" />
+            Hábitos
+          </button>
+          <button
+            onClick={() => setActiveTab('weekly_report')}
+            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
+              activeTab === 'weekly_report'
+                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <FileText className="w-5 h-5 text-indigo-500" />
+            Relatório Semanal
+          </button>
+          <button
             onClick={() => setActiveTab('flashcards')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
               activeTab === 'flashcards'
@@ -699,6 +731,59 @@ export function App() {
               dailyGoalMinutes={dailyGoal}
               onStartFocusToday={() => prepareTimer('pomodoro')}
             />
+
+            {/* Grid: Meus Hábitos & Resumo da Semana */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <HabitsCard
+                habits={habits}
+                habitLogs={habitLogs}
+                onOpenHabitsPage={() => setActiveTab('habits')}
+                onToggleHabit={async (habit) => {
+                  const todayStr = formatDateToLocalYYYYMMDD(new Date());
+                  const log = getHabitLogForDate(habitLogs, habit.id, todayStr);
+                  const status = getHabitStatusForDate(habit, log);
+                  const nowTime = Date.now();
+                  const logId = `${habit.id}_${todayStr}`;
+
+                  if (status.completed) {
+                    if (log) {
+                      await db.habitLogs.update(log.id, {
+                        completed: false,
+                        currentValue: 0,
+                        updatedAt: nowTime,
+                      });
+                    }
+                  } else {
+                    const targetVal = habit.targetType === 'numeric' ? (habit.targetValue || 1) : 1;
+                    await db.habitLogs.put({
+                      id: logId,
+                      habitId: habit.id,
+                      date: todayStr,
+                      completed: true,
+                      currentValue: targetVal,
+                      targetValue: targetVal,
+                      completedAt: nowTime,
+                      createdAt: log ? log.createdAt : nowTime,
+                      updatedAt: nowTime,
+                    });
+                    confetti({ particleCount: 35, spread: 55, origin: { y: 0.85 } });
+                  }
+                }}
+                onOpenNewHabitModal={() => setActiveTab('habits')}
+                onOpenNumericModal={() => setActiveTab('habits')}
+              />
+              <WeeklyReportCard
+                sessions={sessions}
+                tasks={tasks}
+                subjects={subjects}
+                gymWorkouts={gymWorkouts}
+                habits={habits}
+                habitLogs={habitLogs}
+                studyPreferences={preferences}
+                gymPreferences={gymPreferences}
+                onOpenReportPage={() => setActiveTab('weekly_report')}
+              />
+            </div>
 
             {/* Árvore de Matérias */}
             <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
@@ -2645,6 +2730,28 @@ export function App() {
           />
         )}
 
+        {/* TAB: RASTREADOR DE HÁBITOS */}
+        {activeTab === 'habits' && (
+          <HabitsSection
+            habits={habits}
+            habitLogs={habitLogs}
+          />
+        )}
+
+        {/* TAB: RELATÓRIO SEMANAL */}
+        {activeTab === 'weekly_report' && (
+          <WeeklyReportSection
+            sessions={sessions}
+            tasks={tasks}
+            subjects={subjects}
+            gymWorkouts={gymWorkouts}
+            habits={habits}
+            habitLogs={habitLogs}
+            studyPreferences={preferences}
+            gymPreferences={gymPreferences}
+          />
+        )}
+
         {/* TAB: ESTRATÉGIA SEMANAL */}
         {activeTab === 'schedule' && (
           <div className="space-y-6">
@@ -3350,6 +3457,15 @@ export function App() {
         >
           <Dumbbell className="w-5 h-5" />
           Treino
+        </button>
+        <button
+          onClick={() => setActiveTab('habits')}
+          className={`flex flex-col items-center gap-1 p-1 text-[10px] font-bold ${
+            activeTab === 'habits' ? 'text-emerald-600 font-black' : 'text-slate-400'
+          }`}
+        >
+          <CheckSquare className="w-5 h-5" />
+          Hábitos
         </button>
         <button
           onClick={() => setActiveTab('flashcards')}
