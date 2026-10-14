@@ -10,7 +10,6 @@ import {
   Calendar,
   Layers,
   BookOpen,
-  Award,
   Trash2,
   Download,
   Upload,
@@ -95,7 +94,7 @@ import type {
 } from './types';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'tracks' | 'college' | 'gym' | 'habits' | 'weekly_report' | 'schedule' | 'progress' | 'career' | 'settings'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'tracks' | 'college' | 'gym' | 'habits' | 'weekly_report' | 'schedule' | 'progress' | 'settings'>('home');
   const [now, setNow] = useState(Date.now());
   const [currentReview, setCurrentReview] = useState<WeeklyReview | null>(null);
   const [currentSchedule, setCurrentSchedule] = useState<SchedulerOutput | null>(null);
@@ -132,7 +131,6 @@ export function App() {
   const learningPaths = useLiveQuery(() => db.learningPaths.filter((lp) => !lp.archived).toArray()) || [];
   const sessions = useLiveQuery(() => db.studySessions.toArray()) || [];
   const preferences = useLiveQuery(() => db.preferences.get('user_preferences'));
-  const projects = useLiveQuery(() => db.portfolioProjects.toArray()) || [];
   const collegeClasses = useLiveQuery(() => db.collegeClasses.toArray()) || [];
   const subjectGrades = useLiveQuery(() => db.subjectGrades.toArray()) || [];
 
@@ -440,7 +438,7 @@ export function App() {
                 PRO
               </span>
             </div>
-            <p className="text-xs text-slate-500 font-medium">Arena do Conhecimento</p>
+            <p className="text-xs text-slate-500 font-medium">Foco & Produtividade</p>
           </div>
         </div>
 
@@ -579,17 +577,6 @@ export function App() {
           >
             <Trophy className="w-5 h-5 text-amber-500" />
             Conquistas & Métricas
-          </button>
-          <button
-            onClick={() => setActiveTab('career')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
-              activeTab === 'career'
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <Award className="w-5 h-5 text-emerald-500" />
-            Arsenal de Projetos
           </button>
         </nav>
 
@@ -2808,194 +2795,6 @@ export function App() {
                       </div>
                     </div>
                   )}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* TAB: ARSENAL DE PROJETOS & PORTFÓLIO */}
-        {activeTab === 'career' && (
-          <div className="space-y-6">
-            <header>
-              <h2 className="text-2xl font-black text-slate-900">Arsenal de Projetos & Portfólio</h2>
-              <p className="text-xs text-slate-500 mt-1">
-                Transforme seu tempo de estudo e XP em projetos de software reais para comprovar suas habilidades.
-              </p>
-            </header>
-
-            {/* Cadastro de Novo Projeto */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
-              <h3 className="font-extrabold text-slate-900 text-sm">Adicionar Projeto ao Portfólio</h3>
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const form = e.currentTarget;
-                  const title = (form.elements.namedItem('projTitle') as HTMLInputElement).value;
-                  const description = (form.elements.namedItem('projDesc') as HTMLTextAreaElement).value;
-                  const skillsStr = (form.elements.namedItem('projSkills') as HTMLInputElement).value;
-                  const repoUrl = (form.elements.namedItem('projRepo') as HTMLInputElement).value;
-                  const demoUrl = (form.elements.namedItem('projDemo') as HTMLInputElement).value;
-
-                  if (!title) return;
-
-                  await db.portfolioProjects.add({
-                    id: `proj-${Date.now()}`,
-                    title,
-                    description,
-                    skills: skillsStr ? skillsStr.split(',').map((s) => s.trim()) : [],
-                    repoUrl: repoUrl || undefined,
-                    demoUrl: demoUrl || undefined,
-                    status: 'in_progress',
-                    createdAt: Date.now(),
-                    updatedAt: Date.now(),
-                  });
-
-                  form.reset();
-                  triggerVictoryEffect();
-                  alert('Projeto adicionado ao seu arsenal!');
-                }}
-                className="space-y-3"
-              >
-                <div>
-                  <input
-                    name="projTitle"
-                    placeholder="Título do Projeto (ex: API de E-commerce com Spring Boot)"
-                    required
-                    className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
-                  />
-                </div>
-                <div>
-                  <textarea
-                    name="projDesc"
-                    placeholder="Descrição técnica, arquitetura e objetivo do projeto..."
-                    rows={2}
-                    required
-                    className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
-                  />
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <input
-                    name="projSkills"
-                    placeholder="Habilidades (ex: Java, Docker, AWS)"
-                    className="text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 focus:outline-hidden"
-                  />
-                  <input
-                    name="projRepo"
-                    placeholder="Link do Repositório GitHub"
-                    className="text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 focus:outline-hidden"
-                  />
-                  <input
-                    name="projDemo"
-                    placeholder="Link da Demonstração ao vivo"
-                    className="text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 focus:outline-hidden"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-xs transition active:scale-95"
-                >
-                  + Cadastrar Projeto
-                </button>
-              </form>
-            </div>
-
-            {/* Lista de Projetos */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-slate-900 text-sm">Seus Projetos em Andamento e Concluídos</h3>
-                <span className="text-xs text-slate-400 font-medium">{projects.length} projetos registrados</span>
-              </div>
-
-              {projects.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {projects.map((p) => (
-                    <div
-                      key={p.id}
-                      className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-3 flex flex-col justify-between"
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span
-                            className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
-                              p.status === 'completed'
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : 'bg-amber-50 text-amber-700 border border-amber-200'
-                            }`}
-                          >
-                            {p.status === 'completed' ? 'Concluído' : 'Em Desenvolvimento'}
-                          </span>
-                          <button
-                            onClick={() => db.portfolioProjects.delete(p.id)}
-                            className="text-slate-300 hover:text-rose-500 transition"
-                            title="Remover projeto"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                        <h4 className="font-extrabold text-slate-900 text-base">{p.title}</h4>
-                        <p className="text-xs text-slate-600 leading-relaxed">{p.description}</p>
-                      </div>
-
-                      <div className="space-y-3 pt-2">
-                        {p.skills.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {p.skills.map((skill, i) => (
-                              <span
-                                key={i}
-                                className="text-[10px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-md"
-                              >
-                                {skill}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-
-                        <div className="flex items-center gap-3 pt-2 border-t border-slate-100">
-                          {p.repoUrl && (
-                            <a
-                              href={p.repoUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-xs font-bold text-indigo-600 hover:underline"
-                            >
-                              GitHub →
-                            </a>
-                          )}
-                          {p.demoUrl && (
-                            <a
-                              href={p.demoUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-xs font-bold text-emerald-600 hover:underline"
-                            >
-                              Demo ao vivo →
-                            </a>
-                          )}
-                          <button
-                            onClick={async () => {
-                              const newStatus = p.status === 'completed' ? 'in_progress' : 'completed';
-                              await db.portfolioProjects.update(p.id, {
-                                status: newStatus,
-                                updatedAt: Date.now(),
-                              });
-                              if (newStatus === 'completed') triggerVictoryEffect();
-                            }}
-                            className="ml-auto text-xs font-semibold text-slate-500 hover:text-slate-900 underline"
-                          >
-                            {p.status === 'completed' ? 'Reabrir' : 'Marcar Concluído'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-2">
-                  <Trophy className="w-10 h-10 text-amber-500 mx-auto" />
-                  <p className="text-xs text-slate-500">
-                    Nenhum projeto cadastrado ainda. Comece estruturando seu primeiro repositório no formulário acima.
-                  </p>
                 </div>
               )}
             </div>
