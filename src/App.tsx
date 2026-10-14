@@ -33,7 +33,12 @@ import {
 } from './lib/timerEngine';
 import { calculateNextSRSReview, formatDateToLocalYYYYMMDD } from './lib/srsEngine';
 import { generateWeeklySchedule, type SchedulerOutput } from './lib/schedulerEngine';
-import { exportAllData, validateBackupString, restoreByReplacement } from './lib/backupEngine';
+import {
+  exportAllData,
+  validateBackupString,
+  restoreByReplacement,
+  restoreByMerge,
+} from './lib/backupEngine';
 import { calculateGamification } from './lib/gamification';
 import { generateWeeklyReviewAnalysis } from './lib/weeklyReviewEngine';
 import type { SessionMode, StudySession, WeeklyReview } from './types';
@@ -1483,7 +1488,7 @@ export function App() {
                 </span>
               </div>
 
-              <div className="space-y-2 pt-2">
+              <div className="space-y-3 pt-2">
                 <button
                   onClick={async () => {
                     const json = await exportAllData();
@@ -1500,29 +1505,59 @@ export function App() {
                   Exportar Backup Completo (JSON)
                 </button>
 
-                <label className="w-full flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3.5 rounded-2xl cursor-pointer transition text-sm">
-                  <Upload className="w-4 h-4" />
-                  Restaurar de Arquivo JSON
-                  <input
-                    type="file"
-                    accept=".json"
-                    className="hidden"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      const text = await file.text();
-                      const validation = validateBackupString(text);
-                      if (!validation.success) {
-                        alert(`Erro de validação: ${validation.error}`);
-                        return;
-                      }
-                      if (confirm('Deseja restaurar substituindo os dados atuais por este backup?')) {
-                        await restoreByReplacement(validation.payload);
-                        alert('Backup restaurado com sucesso!');
-                      }
-                    }}
-                  />
-                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  <label className="flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 font-bold py-3 rounded-2xl cursor-pointer transition text-xs">
+                    <Upload className="w-4 h-4 text-emerald-600" />
+                    Mesclar Dados (LWW)
+                    <input
+                      type="file"
+                      accept=".json"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const text = await file.text();
+                        const validation = validateBackupString(text);
+                        if (!validation.success) {
+                          alert(`Erro de validação: ${validation.error}`);
+                          return;
+                        }
+                        const res = await restoreByMerge(validation.payload);
+                        triggerVictoryEffect();
+                        alert(`Mesclagem concluída! ${res.added} novos registros adicionados, ${res.updated} atualizados.`);
+                      }}
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-center gap-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 font-bold py-3 rounded-2xl cursor-pointer transition text-xs">
+                    <Upload className="w-4 h-4 text-rose-600" />
+                    Substituir Tudo
+                    <input
+                      type="file"
+                      accept=".json"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const text = await file.text();
+                        const validation = validateBackupString(text);
+                        if (!validation.success) {
+                          alert(`Erro de validação: ${validation.error}`);
+                          return;
+                        }
+                        if (
+                          confirm(
+                            'ATENÇÃO: Deseja realmente substituir todos os dados atuais por este backup? Esta ação não pode ser desfeita.'
+                          )
+                        ) {
+                          await restoreByReplacement(validation.payload);
+                          triggerVictoryEffect();
+                          alert('Backup restaurado com sucesso!');
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
               </div>
             </div>
           </div>

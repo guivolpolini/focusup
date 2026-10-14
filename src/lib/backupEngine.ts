@@ -166,3 +166,97 @@ export function mergeEntitiesLWW<T extends { id: string; updatedAt?: number }>(
     addedCount,
   };
 }
+
+/**
+ * Modo 2: Mesclagem determinística Last-Write-Wins (LWW) preservando integridade local
+ */
+export async function restoreByMerge(payload: BackupPayload): Promise<{ added: number; updated: number }> {
+  let totalAdded = 0;
+  let totalUpdated = 0;
+
+  await db.transaction(
+    'rw',
+    [
+      db.subjects,
+      db.tasks,
+      db.learningPaths,
+      db.studySessions,
+      db.flashcards,
+      db.preferences,
+      db.studyPlans,
+      db.weeklyReviews,
+      db.portfolioProjects,
+    ],
+    async () => {
+      const [
+        localSubjects,
+        localTasks,
+        localPaths,
+        localSessions,
+        localCards,
+        localPreferences,
+        localPlans,
+        localReviews,
+        localProjects,
+      ] = await Promise.all([
+        db.subjects.toArray(),
+        db.tasks.toArray(),
+        db.learningPaths.toArray(),
+        db.studySessions.toArray(),
+        db.flashcards.toArray(),
+        db.preferences.toArray(),
+        db.studyPlans.toArray(),
+        db.weeklyReviews.toArray(),
+        db.portfolioProjects.toArray(),
+      ]);
+
+      const d = payload.data;
+
+      const subRes = mergeEntitiesLWW(localSubjects, d.subjects as Subject[]);
+      const taskRes = mergeEntitiesLWW(localTasks, d.tasks as Task[]);
+      const pathRes = mergeEntitiesLWW(localPaths, d.learningPaths as LearningPath[]);
+      const sessRes = mergeEntitiesLWW(localSessions, d.studySessions as StudySession[]);
+      const cardRes = mergeEntitiesLWW(localCards, d.flashcards as Flashcard[]);
+      const prefRes = mergeEntitiesLWW(localPreferences, d.preferences as StudyPreferences[]);
+      const planRes = mergeEntitiesLWW(localPlans, d.studyPlans as StudyPlan[]);
+      const revRes = mergeEntitiesLWW(localReviews, d.weeklyReviews as WeeklyReview[]);
+      const projRes = mergeEntitiesLWW(localProjects, d.portfolioProjects as PortfolioProject[]);
+
+      totalAdded =
+        subRes.addedCount +
+        taskRes.addedCount +
+        pathRes.addedCount +
+        sessRes.addedCount +
+        cardRes.addedCount +
+        prefRes.addedCount +
+        planRes.addedCount +
+        revRes.addedCount +
+        projRes.addedCount;
+
+      totalUpdated =
+        subRes.updatedCount +
+        taskRes.updatedCount +
+        pathRes.updatedCount +
+        sessRes.updatedCount +
+        cardRes.updatedCount +
+        prefRes.updatedCount +
+        planRes.updatedCount +
+        revRes.updatedCount +
+        projRes.updatedCount;
+
+      await Promise.all([
+        db.subjects.bulkPut(subRes.merged),
+        db.tasks.bulkPut(taskRes.merged),
+        db.learningPaths.bulkPut(pathRes.merged),
+        db.studySessions.bulkPut(sessRes.merged),
+        db.flashcards.bulkPut(cardRes.merged),
+        db.preferences.bulkPut(prefRes.merged),
+        db.studyPlans.bulkPut(planRes.merged),
+        db.weeklyReviews.bulkPut(revRes.merged),
+        db.portfolioProjects.bulkPut(projRes.merged),
+      ]);
+    }
+  );
+
+  return { added: totalAdded, updated: totalUpdated };
+}
