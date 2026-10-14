@@ -81,5 +81,6 @@ describe('Timer Engine (Resiliência Temporal)', () => {
     expect(progress.remainingSeconds).toBe(0);
     expect(progress.isFinished).toBe(true);
     expect(progress.progressPercentage).toBe(100);
+    expect(progress.actualStudiedSeconds).toBe(5 * 60); // limitado a 5 min planejados
   });
 });

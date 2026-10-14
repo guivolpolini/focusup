@@ -280,9 +280,8 @@ export function App() {
     });
 
     setShowAnswer(false);
-    if (reviewIndex + 1 < dueFlashcards.length) {
-      setReviewIndex(reviewIndex + 1);
-    } else {
+    // Como a lista reativa do Dexie já remove o cartão após o update, o próximo cartão naturalmente ocupa o índice atual
+    if (reviewIndex >= dueFlashcards.length - 1) {
       setReviewIndex(0);
       triggerVictoryEffect();
       alert('Incrível! Todas as cartas do dia foram dominadas! (+XP adicionado)');

@@ -36,7 +36,10 @@ export function calculateTimerProgress(state: ActiveTimerState, now: number = Da
 
   const remainingMs = Math.max(0, totalPlannedMs - elapsedMs);
   const remainingSeconds = Math.ceil(remainingMs / 1000);
-  const actualStudiedSeconds = Math.floor(elapsedMs / 1000);
+  const actualStudiedSeconds = Math.min(
+    state.plannedMinutes * 60,
+    Math.floor(elapsedMs / 1000)
+  );
   const isFinished = elapsedMs >= totalPlannedMs;
 
   return {
