@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import confetti from 'canvas-confetti';
+import { ConsistencyCalendar } from './components/ConsistencyCalendar';
+import { groupActivityByDay, calculateStreaks } from './lib/consistencyEngine';
 import {
   Play,
   Pause,
@@ -348,28 +350,14 @@ export function App() {
   const dailyGoal = preferences?.dailyGoalMinutes || 120;
   const dailyProgressPercent = Math.min(100, Math.round((studiedMinutesToday / dailyGoal) * 100));
 
-  // Sequência Real de Dias (Streak)
-  const studyDates = Array.from(
-    new Set(
-      sessions
-        .filter((s) => s.status === 'completed' && s.actualDurationSeconds >= 60)
-        .map((s) => formatDateToLocalYYYYMMDD(new Date(s.startedAt)))
-    )
-  ).sort().reverse();
+  // Sequência Real de Dias (Streak) e Mapa de Consistência
+  const activityDayMap = useMemo(() => {
+    return groupActivityByDay(sessions, tasks, dailyGoal);
+  }, [sessions, tasks, dailyGoal]);
 
-  let streak = 0;
-  let checkDate = new Date();
-  for (let i = 0; i < 365; i++) {
-    const dStr = formatDateToLocalYYYYMMDD(checkDate);
-    if (studyDates.includes(dStr)) {
-      streak++;
-      checkDate.setDate(checkDate.getDate() - 1);
-    } else if (i === 0) {
-      checkDate.setDate(checkDate.getDate() - 1);
-    } else {
-      break;
-    }
-  }
+  const { currentStreak: streak } = useMemo(() => {
+    return calculateStreaks(activityDayMap);
+  }, [activityDayMap]);
 
   // Estatísticas de Gamificação (XP & Rank)
   const totalStudiedSecondsAllTime = sessions.reduce((acc, s) => acc + s.actualDurationSeconds, 0);
@@ -683,6 +671,14 @@ export function App() {
                 </button>
               </div>
             )}
+
+            {/* Calendário de Consistência no Dashboard */}
+            <ConsistencyCalendar
+              sessions={sessions}
+              tasks={tasks}
+              dailyGoalMinutes={dailyGoal}
+              onStartFocusToday={() => prepareTimer('pomodoro')}
+            />
 
             {/* Árvore de Matérias */}
             <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
