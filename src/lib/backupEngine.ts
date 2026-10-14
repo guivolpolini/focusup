@@ -10,6 +10,8 @@ import type {
   StudyPlan,
   WeeklyReview,
   PortfolioProject,
+  CollegeClassSchedule,
+  SubjectGradeConfig,
 } from '../types';
 
 export const BackupSchema = z.object({
@@ -26,6 +28,8 @@ export const BackupSchema = z.object({
     studyPlans: z.array(z.any()),
     weeklyReviews: z.array(z.any()),
     portfolioProjects: z.array(z.any()),
+    collegeClasses: z.array(z.any()).optional(),
+    subjectGrades: z.array(z.any()).optional(),
   }),
 });
 
@@ -45,6 +49,8 @@ export async function exportAllData(): Promise<string> {
     studyPlans,
     weeklyReviews,
     portfolioProjects,
+    collegeClasses,
+    subjectGrades,
   ] = await Promise.all([
     db.subjects.toArray(),
     db.tasks.toArray(),
@@ -55,6 +61,8 @@ export async function exportAllData(): Promise<string> {
     db.studyPlans.toArray(),
     db.weeklyReviews.toArray(),
     db.portfolioProjects.toArray(),
+    db.collegeClasses.toArray(),
+    db.subjectGrades.toArray(),
   ]);
 
   const payload: BackupPayload = {
@@ -71,6 +79,8 @@ export async function exportAllData(): Promise<string> {
       studyPlans,
       weeklyReviews,
       portfolioProjects,
+      collegeClasses,
+      subjectGrades,
     },
   };
 
@@ -106,6 +116,8 @@ export async function restoreByReplacement(payload: BackupPayload): Promise<void
       db.studyPlans,
       db.weeklyReviews,
       db.portfolioProjects,
+      db.collegeClasses,
+      db.subjectGrades,
     ],
     async () => {
       await db.subjects.clear();
@@ -117,6 +129,8 @@ export async function restoreByReplacement(payload: BackupPayload): Promise<void
       await db.studyPlans.clear();
       await db.weeklyReviews.clear();
       await db.portfolioProjects.clear();
+      await db.collegeClasses.clear();
+      await db.subjectGrades.clear();
 
       const d = payload.data;
       if (d.subjects.length) await db.subjects.bulkAdd(d.subjects as Subject[]);
@@ -128,6 +142,8 @@ export async function restoreByReplacement(payload: BackupPayload): Promise<void
       if (d.studyPlans.length) await db.studyPlans.bulkAdd(d.studyPlans as StudyPlan[]);
       if (d.weeklyReviews.length) await db.weeklyReviews.bulkAdd(d.weeklyReviews as WeeklyReview[]);
       if (d.portfolioProjects.length) await db.portfolioProjects.bulkAdd(d.portfolioProjects as PortfolioProject[]);
+      if (d.collegeClasses?.length) await db.collegeClasses.bulkAdd(d.collegeClasses as CollegeClassSchedule[]);
+      if (d.subjectGrades?.length) await db.subjectGrades.bulkAdd(d.subjectGrades as SubjectGradeConfig[]);
     }
   );
 }
@@ -186,6 +202,8 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
       db.studyPlans,
       db.weeklyReviews,
       db.portfolioProjects,
+      db.collegeClasses,
+      db.subjectGrades,
     ],
     async () => {
       const [
@@ -198,6 +216,8 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         localPlans,
         localReviews,
         localProjects,
+        localClasses,
+        localGrades,
       ] = await Promise.all([
         db.subjects.toArray(),
         db.tasks.toArray(),
@@ -208,6 +228,8 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         db.studyPlans.toArray(),
         db.weeklyReviews.toArray(),
         db.portfolioProjects.toArray(),
+        db.collegeClasses.toArray(),
+        db.subjectGrades.toArray(),
       ]);
 
       const d = payload.data;
@@ -221,6 +243,8 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
       const planRes = mergeEntitiesLWW(localPlans, d.studyPlans as StudyPlan[]);
       const revRes = mergeEntitiesLWW(localReviews, d.weeklyReviews as WeeklyReview[]);
       const projRes = mergeEntitiesLWW(localProjects, d.portfolioProjects as PortfolioProject[]);
+      const classRes = mergeEntitiesLWW(localClasses, (d.collegeClasses || []) as CollegeClassSchedule[]);
+      const gradeRes = mergeEntitiesLWW(localGrades, (d.subjectGrades || []) as SubjectGradeConfig[]);
 
       totalAdded =
         subRes.addedCount +
@@ -231,7 +255,9 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         prefRes.addedCount +
         planRes.addedCount +
         revRes.addedCount +
-        projRes.addedCount;
+        projRes.addedCount +
+        classRes.addedCount +
+        gradeRes.addedCount;
 
       totalUpdated =
         subRes.updatedCount +
@@ -242,7 +268,9 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         prefRes.updatedCount +
         planRes.updatedCount +
         revRes.updatedCount +
-        projRes.updatedCount;
+        projRes.updatedCount +
+        classRes.updatedCount +
+        gradeRes.updatedCount;
 
       await Promise.all([
         db.subjects.bulkPut(subRes.merged),
@@ -254,6 +282,8 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         db.studyPlans.bulkPut(planRes.merged),
         db.weeklyReviews.bulkPut(revRes.merged),
         db.portfolioProjects.bulkPut(projRes.merged),
+        db.collegeClasses.bulkPut(classRes.merged),
+        db.subjectGrades.bulkPut(gradeRes.merged),
       ]);
     }
   );

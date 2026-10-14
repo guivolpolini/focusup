@@ -170,3 +170,46 @@ export interface PortfolioProject {
   createdAt: number;
   updatedAt: number;
 }
+
+export interface Assessment {
+  id: string;
+  name: string; // Ex: 'P1', 'P2', 'Trabalho Semestral', 'Atividades'
+  weight: number; // Ex: 4 para peso 4
+  score?: number; // Ex: 7.5 (undefined se pendente)
+  maxScore?: number; // Padrão 10
+}
+
+export interface SubjectGradeConfig {
+  id: string; // id do registro ou subjectId
+  subjectId: string;
+  passingGrade: number; // Média mínima para aprovação direta (ex: 6.0 ou 7.0)
+  finalExamPassingGrade?: number; // Média mínima necessária após exame (ex: 5.0)
+  assessments: Assessment[];
+  updatedAt: number;
+}
+
+export interface GradeSimulationResult {
+  currentWeightedAverage: number | null;
+  accumulatedPoints: number;
+  totalWeight: number;
+  completedWeight: number;
+  remainingWeight: number;
+  status: 'passed' | 'pending' | 'danger_exam' | 'failed';
+  neededRemainingAverage: number | null;
+  finalExamNeeded?: number | null;
+  message: string;
+}
+
+export interface CollegeClassSchedule {
+  id: string;
+  subjectId: string;
+  dayOfWeek: 1 | 2 | 3 | 4 | 5 | 6; // 1 = Seg, 2 = Ter, 3 = Qua, 4 = Qui, 5 = Sex, 6 = Sáb
+  startTime: string; // '19:00'
+  endTime: string; // '20:40'
+  room?: string; // 'Sala 302' ou 'Lab 4'
+  professor?: string; // 'Prof. Marcelo'
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+

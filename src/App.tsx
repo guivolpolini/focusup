@@ -29,6 +29,11 @@ import {
   Bell,
   BellRing,
   RotateCcw,
+  Calculator,
+  Clock,
+  MapPin,
+  User,
+  CalendarDays,
 } from 'lucide-react';
 
 import { db, seedInitialData } from './lib/db';
@@ -55,7 +60,17 @@ import {
   sendLocalNotification,
   getNotificationPermissionStatus,
 } from './lib/notificationEngine';
-import type { SessionMode, StudySession, WeeklyReview } from './types';
+import {
+  calculateGradeSimulation,
+  createDefaultGradeConfig,
+} from './lib/gradeCalculator';
+import type {
+  SessionMode,
+  StudySession,
+  WeeklyReview,
+  SubjectGradeConfig,
+  Assessment,
+} from './types';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'tracks' | 'college' | 'schedule' | 'progress' | 'flashcards' | 'career' | 'settings'>('home');
@@ -84,6 +99,17 @@ export function App() {
   const sessions = useLiveQuery(() => db.studySessions.toArray()) || [];
   const preferences = useLiveQuery(() => db.preferences.get('user_preferences'));
   const projects = useLiveQuery(() => db.portfolioProjects.toArray()) || [];
+  const collegeClasses = useLiveQuery(() => db.collegeClasses.toArray()) || [];
+  const subjectGrades = useLiveQuery(() => db.subjectGrades.toArray()) || [];
+
+  // Sub-abas e modais do Portal da Faculdade
+  const [collegeSubTab, setCollegeSubTab] = useState<'disciplines' | 'timetable' | 'import'>('disciplines');
+  const [activeGradeSubjectId, setActiveGradeSubjectId] = useState<string | null>(null);
+  const [selectedTimetableDay, setSelectedTimetableDay] = useState<number>(() => {
+    const d = new Date().getDay();
+    return d === 0 ? 1 : Math.min(6, d);
+  });
+  const [showAddClassForm, setShowAddClassForm] = useState(false);
 
   // Flashcards para revisão hoje
   const todayStr = formatDateToLocalYYYYMMDD(new Date());
@@ -1265,7 +1291,7 @@ export function App() {
           </div>
         )}
 
-        {/* TAB: FACULDADE (MATÉRIAS ACADÊMICAS & PROVAS) */}
+        {/* TAB: FACULDADE (MATÉRIAS ACADÊMICAS, NOTAS & GRADE HORÁRIA) */}
         {activeTab === 'college' && (
           <div className="space-y-6">
             <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1275,234 +1301,833 @@ export function App() {
                   <h2 className="text-2xl font-black text-slate-900">Portal da Faculdade</h2>
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
-                  Organize suas disciplinas do semestre, prazos de trabalhos, entregas e sessões de estudo para provas.
+                  Disciplinas acadêmicas, simulador de notas para provas e grade horária semanal de aulas.
                 </p>
+              </div>
+
+              {/* Sub-navegação do Portal da Faculdade */}
+              <div className="inline-flex p-1 bg-slate-200/80 rounded-2xl gap-1 self-start sm:self-auto">
+                <button
+                  onClick={() => setCollegeSubTab('disciplines')}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+                    collegeSubTab === 'disciplines'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <GraduationCap className="w-3.5 h-3.5 text-indigo-600" />
+                  Disciplinas & Notas
+                </button>
+                <button
+                  onClick={() => setCollegeSubTab('timetable')}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+                    collegeSubTab === 'timetable'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <CalendarDays className="w-3.5 h-3.5 text-indigo-600" />
+                  Grade Horária
+                </button>
+                <button
+                  onClick={() => setCollegeSubTab('import')}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+                    collegeSubTab === 'import'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <FileUp className="w-3.5 h-3.5 text-indigo-600" />
+                  Importador
+                </button>
               </div>
             </header>
 
-            {/* Importador Inteligente de Documentos / Calendário de Provas */}
-            <div className="bg-gradient-to-br from-indigo-50/70 via-white to-amber-50/50 p-6 rounded-3xl border border-indigo-100 shadow-xs space-y-3">
-              <div className="flex items-center gap-2">
-                <FileUp className="w-5 h-5 text-indigo-600" />
-                <h3 className="font-extrabold text-slate-900 text-sm">
-                  Importar Documento de Estudos ou Calendário de Provas
-                </h3>
-              </div>
-              <p className="text-xs text-slate-600">
-                Envie um arquivo de texto, markdown ou ementa (`.txt`, `.md`, `.csv`). O FocusUp extrairá automaticamente
-                as matérias, datas de provas e tópicos da trilha para organizar sua rotina.
-              </p>
+            {/* SUB-ABA 1: DISCIPLINAS & CALCULADORA DE NOTAS */}
+            {collegeSubTab === 'disciplines' && (
+              <div className="space-y-6">
+                {/* Cadastro de Disciplina da Faculdade */}
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+                  <h3 className="font-extrabold text-slate-900 text-sm">Adicionar Disciplina do Semestre</h3>
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const form = e.currentTarget;
+                      const name = (form.elements.namedItem('collegeName') as HTMLInputElement).value;
+                      const color = (form.elements.namedItem('collegeColor') as HTMLInputElement).value || '#4f46e5';
+                      const targetMinutes = Number((form.elements.namedItem('collegeTarget') as HTMLInputElement).value) || 120;
+                      const deadline = (form.elements.namedItem('collegeDeadline') as HTMLInputElement).value;
 
-              <div className="pt-1">
-                <label className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl cursor-pointer shadow-xs transition active:scale-95">
-                  <FileText className="w-4 h-4" />
-                  Selecionar Documento (.txt, .md, .csv)
-                  <input
-                    type="file"
-                    accept=".txt,.md,.csv,.text"
-                    className="hidden"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      const text = await file.text();
-                      const result = parseStudyDocument(text, file.name);
+                      if (!name) return;
 
-                      if (result.createdSubjects.length > 0) {
-                        await db.subjects.bulkAdd(result.createdSubjects);
-                      }
-                      if (result.createdTasks.length > 0) {
-                        await db.tasks.bulkAdd(result.createdTasks);
-                      }
-                      if (result.createdTracks.length > 0) {
-                        await db.learningPaths.bulkAdd(result.createdTracks);
-                      }
+                      const newSubId = `col-${Date.now()}`;
+                      await db.subjects.add({
+                        id: newSubId,
+                        name,
+                        color,
+                        priority: 'high',
+                        category: 'college',
+                        targetMinutesPerWeek: targetMinutes,
+                        deadline: deadline || undefined,
+                        archived: false,
+                        createdAt: Date.now(),
+                        updatedAt: Date.now(),
+                      });
 
+                      // Inicializar configuração de notas padrão para a matéria
+                      await db.subjectGrades.add(createDefaultGradeConfig(newSubId, 6.0));
+
+                      form.reset();
                       triggerVictoryEffect();
-                      alert(result.summary);
+                      alert('Disciplina e simulador de notas criados com sucesso!');
                     }}
-                  />
-                </label>
-              </div>
-            </div>
-
-            {/* Cadastro de Disciplina da Faculdade */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
-              <h3 className="font-extrabold text-slate-900 text-sm">Adicionar Disciplina do Semestre Manualmente</h3>
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const form = e.currentTarget;
-                  const name = (form.elements.namedItem('collegeName') as HTMLInputElement).value;
-                  const color = (form.elements.namedItem('collegeColor') as HTMLInputElement).value || '#4f46e5';
-                  const targetMinutes = Number((form.elements.namedItem('collegeTarget') as HTMLInputElement).value) || 120;
-                  const deadline = (form.elements.namedItem('collegeDeadline') as HTMLInputElement).value;
-
-                  if (!name) return;
-
-                  await db.subjects.add({
-                    id: `col-${Date.now()}`,
-                    name,
-                    color,
-                    priority: 'high',
-                    category: 'college',
-                    targetMinutesPerWeek: targetMinutes,
-                    deadline: deadline || undefined,
-                    archived: false,
-                    createdAt: Date.now(),
-                    updatedAt: Date.now(),
-                  });
-
-                  form.reset();
-                  triggerVictoryEffect();
-                  alert('Disciplina adicionada à grade da faculdade!');
-                }}
-                className="grid grid-cols-1 sm:grid-cols-4 gap-2"
-              >
-                <div className="sm:col-span-2 flex items-center gap-2">
-                  <input
-                    name="collegeColor"
-                    type="color"
-                    defaultValue="#4f46e5"
-                    className="w-9 h-9 rounded-xl cursor-pointer border-0 bg-transparent p-0"
-                    title="Cor da matéria"
-                  />
-                  <input
-                    name="collegeName"
-                    placeholder="Nome da disciplina (ex: Cálculo II, Algoritmos, Redes)..."
-                    required
-                    className="flex-1 text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
-                  />
-                </div>
-                <div>
-                  <input
-                    name="collegeDeadline"
-                    type="date"
-                    className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
-                    title="Data da Próxima Prova ou Trabalho Final"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    name="collegeTarget"
-                    type="number"
-                    defaultValue={120}
-                    className="w-20 text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 text-center focus:outline-hidden"
-                    title="Meta semanal de minutos"
-                  />
-                  <button
-                    type="submit"
-                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs p-3 rounded-xl shadow-xs transition active:scale-95"
+                    className="grid grid-cols-1 sm:grid-cols-4 gap-2"
                   >
-                    + Adicionar
-                  </button>
+                    <div className="sm:col-span-2 flex items-center gap-2">
+                      <input
+                        name="collegeColor"
+                        type="color"
+                        defaultValue="#4f46e5"
+                        className="w-9 h-9 rounded-xl cursor-pointer border-0 bg-transparent p-0"
+                        title="Cor da matéria"
+                      />
+                      <input
+                        name="collegeName"
+                        placeholder="Nome da disciplina (ex: Cálculo II, Algoritmos, Redes)..."
+                        required
+                        className="flex-1 text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
+                      />
+                    </div>
+                    <div>
+                      <input
+                        name="collegeDeadline"
+                        type="date"
+                        className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
+                        title="Data da Próxima Prova ou Trabalho Final"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        name="collegeTarget"
+                        type="number"
+                        defaultValue={120}
+                        className="w-20 text-xs p-3 rounded-xl border border-slate-200 bg-slate-50/50 text-center focus:outline-hidden"
+                        title="Meta semanal de minutos"
+                      />
+                      <button
+                        type="submit"
+                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs p-3 rounded-xl shadow-xs transition active:scale-95"
+                      >
+                        + Adicionar
+                      </button>
+                    </div>
+                  </form>
                 </div>
-              </form>
-            </div>
 
-            {/* Disciplinas da Faculdade Cadastradas */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-slate-900 text-sm">Disciplinas Cadastradas</h3>
-                <span className="text-xs text-slate-400 font-medium">
-                  {subjects.filter((s) => s.category === 'college').length} disciplinas ativas
-                </span>
-              </div>
+                {/* Disciplinas Cadastradas com Notas */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-slate-900 text-sm">Disciplinas do Semestre & Situação Acadêmica</h3>
+                    <span className="text-xs text-slate-400 font-medium">
+                      {subjects.filter((s) => s.category === 'college').length} disciplinas
+                    </span>
+                  </div>
 
-              {subjects.filter((s) => s.category === 'college').length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {subjects
-                    .filter((s) => s.category === 'college')
-                    .map((colSub) => {
-                      const collegeTasks = tasks.filter((t) => t.subjectId === colSub.id);
-                      const completedTasks = collegeTasks.filter((t) => t.status === 'completed');
+                  {subjects.filter((s) => s.category === 'college').length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {subjects
+                        .filter((s) => s.category === 'college')
+                        .map((colSub) => {
+                          const collegeTasks = tasks.filter((t) => t.subjectId === colSub.id);
+                          const completedTasks = collegeTasks.filter((t) => t.status === 'completed');
 
-                      return (
-                        <div
-                          key={colSub.id}
-                          className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-3"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div
-                                className="w-4 h-4 rounded-lg shadow-2xs"
-                                style={{ backgroundColor: colSub.color }}
-                              />
-                              <div>
-                                <h4 className="font-extrabold text-slate-900 text-base">{colSub.name}</h4>
-                                <div className="text-[11px] text-slate-400">
-                                  Meta: {colSub.targetMinutesPerWeek}m/sem • {completedTasks.length}/{collegeTasks.length} tarefas
+                          const gradeConfig =
+                            subjectGrades.find((g) => g.subjectId === colSub.id) ||
+                            createDefaultGradeConfig(colSub.id);
+                          const sim = calculateGradeSimulation(gradeConfig);
+
+                          return (
+                            <div
+                              key={colSub.id}
+                              className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-4 flex flex-col justify-between"
+                            >
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <div
+                                      className="w-4 h-4 rounded-lg shadow-2xs"
+                                      style={{ backgroundColor: colSub.color }}
+                                    />
+                                    <div>
+                                      <h4 className="font-extrabold text-slate-900 text-base">{colSub.name}</h4>
+                                      <div className="text-[11px] text-slate-400">
+                                        Meta: {colSub.targetMinutesPerWeek}m/sem • {completedTasks.length}/{collegeTasks.length} tarefas
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      onClick={() => startTimer('pomodoro', 25, colSub.id)}
+                                      className="p-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition"
+                                      title="Iniciar sessão de foco agora"
+                                    >
+                                      <Play className="w-3.5 h-3.5 fill-current" />
+                                    </button>
+                                    <button
+                                      onClick={async () => {
+                                        if (confirm(`Remover disciplina "${colSub.name}"?`)) {
+                                          await db.subjects.delete(colSub.id);
+                                          const gr = subjectGrades.find((g) => g.subjectId === colSub.id);
+                                          if (gr) await db.subjectGrades.delete(gr.id);
+                                        }
+                                      }}
+                                      className="text-slate-300 hover:text-rose-500 p-1 transition"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {colSub.deadline && (
+                                  <div className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200/80 flex items-center justify-between">
+                                    <span>Próxima Prova / Entrega:</span>
+                                    <span className="font-mono font-bold">{colSub.deadline}</span>
+                                  </div>
+                                )}
+
+                                {/* Status de Notas & Simulação (Feature 1) */}
+                                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                                      <Calculator className="w-3 h-3 text-indigo-600" />
+                                      Cálculo de Média
+                                    </span>
+                                    {sim.status === 'passed' ? (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
+                                        APROVADO 🎉
+                                      </span>
+                                    ) : sim.status === 'danger_exam' ? (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800">
+                                        RISCO EXAME ⚠️
+                                      </span>
+                                    ) : sim.status === 'failed' ? (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800">
+                                        REPROVADO ❌
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-800">
+                                        EM ANDAMENTO 🎯
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-baseline justify-between text-xs">
+                                    <span className="text-slate-600 font-medium">Média Atual:</span>
+                                    <span className="font-mono font-black text-slate-900">
+                                      {sim.currentWeightedAverage !== null
+                                        ? `${sim.currentWeightedAverage.toFixed(1)} / 10`
+                                        : 'Aguardando notas'}
+                                    </span>
+                                  </div>
+
+                                  <div className="text-[11px] text-slate-600 leading-tight">
+                                    {sim.message}
+                                  </div>
+
+                                  <button
+                                    onClick={() => setActiveGradeSubjectId(colSub.id)}
+                                    className="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 font-bold py-2 rounded-xl text-[11px] transition shadow-2xs active:scale-98"
+                                  >
+                                    <Calculator className="w-3.5 h-3.5 text-indigo-600" />
+                                    Abrir Calculadora & Simulador P1/P2/Exame
+                                  </button>
                                 </div>
                               </div>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                onClick={() => startTimer('pomodoro', 25, colSub.id)}
-                                className="p-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition"
-                                title="Estudar esta disciplina agora"
-                              >
-                                <Play className="w-3.5 h-3.5 fill-current" />
-                              </button>
-                              <button
-                                onClick={async () => {
-                                  if (confirm(`Remover disciplina "${colSub.name}"?`)) {
-                                    await db.subjects.delete(colSub.id);
-                                  }
-                                }}
-                                className="text-slate-300 hover:text-rose-500 p-1 transition"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
 
-                          {colSub.deadline && (
-                            <div className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200/80 flex items-center justify-between">
-                              <span>Próxima Prova / Entrega:</span>
-                              <span className="font-mono font-bold">{colSub.deadline}</span>
+                              {/* Ações Rápidas de Tarefas para a Faculdade */}
+                              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                                <button
+                                  onClick={() => {
+                                    const title = prompt(`Adicionar trabalho ou estudo para ${colSub.name}:`);
+                                    if (title) {
+                                      db.tasks.add({
+                                        id: `task-${Date.now()}`,
+                                        title,
+                                        subjectId: colSub.id,
+                                        priority: 'high',
+                                        estimatedMinutes: 45,
+                                        actualStudiedMinutes: 0,
+                                        status: 'pending',
+                                        createdAt: Date.now(),
+                                        updatedAt: Date.now(),
+                                      });
+                                    }
+                                  }}
+                                  className="text-indigo-600 font-bold hover:underline"
+                                >
+                                  + Adicionar Trabalho/Estudo
+                                </button>
+                                <span className="text-slate-400 text-[11px]">
+                                  {collegeTasks.filter((t) => t.status === 'pending').length} pendentes
+                                </span>
+                              </div>
                             </div>
-                          )}
+                          );
+                        })}
+                    </div>
+                  ) : (
+                    <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-3">
+                      <GraduationCap className="w-12 h-12 text-indigo-400 mx-auto" />
+                      <h4 className="font-extrabold text-slate-900 text-base">Nenhuma disciplina cadastrada</h4>
+                      <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                        Adicione suas matérias da faculdade no formulário acima para acompanhar provas, prazos e simular notas.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
-                          {/* Ações Rápidas de Tarefas para a Faculdade */}
-                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-                            <button
-                              onClick={() => {
-                                const title = prompt(`Adicionar trabalho ou estudo para ${colSub.name}:`);
-                                if (title) {
-                                  db.tasks.add({
-                                    id: `task-${Date.now()}`,
-                                    title,
-                                    subjectId: colSub.id,
-                                    priority: 'high',
-                                    estimatedMinutes: 45,
-                                    actualStudiedMinutes: 0,
-                                    status: 'pending',
-                                    createdAt: Date.now(),
-                                    updatedAt: Date.now(),
-                                  });
-                                }
-                              }}
-                              className="text-indigo-600 font-bold hover:underline"
-                            >
-                              + Adicionar Trabalho/Estudo
-                            </button>
-                            <span className="text-slate-400 text-[11px]">
-                              {collegeTasks.filter((t) => t.status === 'pending').length} pendentes
+            {/* SUB-ABA 2: GRADE HORÁRIA SEMANAL DE AULAS (Feature 6) */}
+            {collegeSubTab === 'timetable' && (
+              <div className="space-y-6">
+                {/* Seletor de Dia da Semana */}
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-1.5 p-1 bg-slate-200/80 rounded-2xl">
+                    {[
+                      { day: 1, label: 'Seg' },
+                      { day: 2, label: 'Ter' },
+                      { day: 3, label: 'Qua' },
+                      { day: 4, label: 'Qui' },
+                      { day: 5, label: 'Sex' },
+                      { day: 6, label: 'Sáb' },
+                    ].map((item) => {
+                      const countForDay = collegeClasses.filter((c) => c.dayOfWeek === item.day).length;
+                      return (
+                        <button
+                          key={item.day}
+                          onClick={() => setSelectedTimetableDay(item.day)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                            selectedTimetableDay === item.day
+                              ? 'bg-white text-indigo-700 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          {item.label}
+                          {countForDay > 0 && (
+                            <span className="w-4 h-4 rounded-full bg-indigo-100 text-indigo-700 text-[9px] flex items-center justify-center font-black">
+                              {countForDay}
                             </span>
-                          </div>
-                        </div>
+                          )}
+                        </button>
                       );
                     })}
+                  </div>
+
+                  <button
+                    onClick={() => setShowAddClassForm(!showAddClassForm)}
+                    className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition active:scale-95"
+                  >
+                    <Plus className="w-4 h-4" />
+                    {showAddClassForm ? 'Fechar Formulário' : 'Adicionar Aula'}
+                  </button>
                 </div>
-              ) : (
-                <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-3">
-                  <GraduationCap className="w-12 h-12 text-indigo-400 mx-auto" />
-                  <h4 className="font-extrabold text-slate-900 text-base">Nenhuma disciplina cadastrada</h4>
-                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                    Adicione suas matérias da faculdade no formulário acima para acompanhar provas, prazos e registrar horas de estudo dedicadas.
-                  </p>
+
+                {/* Formulário de Adicionar Aula na Grade */}
+                {showAddClassForm && (
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+                    <h3 className="font-extrabold text-slate-900 text-sm">Cadastrar Horário de Aula</h3>
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        const form = e.currentTarget;
+                        const subjectId = (form.elements.namedItem('classSubjectId') as HTMLSelectElement).value;
+                        const dayOfWeek = Number((form.elements.namedItem('classDay') as HTMLSelectElement).value) as 1 | 2 | 3 | 4 | 5 | 6;
+                        const startTime = (form.elements.namedItem('classStartTime') as HTMLInputElement).value || '19:00';
+                        const endTime = (form.elements.namedItem('classEndTime') as HTMLInputElement).value || '20:40';
+                        const room = (form.elements.namedItem('classRoom') as HTMLInputElement).value;
+                        const professor = (form.elements.namedItem('classProfessor') as HTMLInputElement).value;
+                        const notes = (form.elements.namedItem('classNotes') as HTMLInputElement).value;
+
+                        if (!subjectId) {
+                          alert('Selecione uma disciplina da faculdade.');
+                          return;
+                        }
+
+                        await db.collegeClasses.add({
+                          id: `class-${Date.now()}`,
+                          subjectId,
+                          dayOfWeek,
+                          startTime,
+                          endTime,
+                          room: room || undefined,
+                          professor: professor || undefined,
+                          notes: notes || undefined,
+                          createdAt: Date.now(),
+                          updatedAt: Date.now(),
+                        });
+
+                        form.reset();
+                        setShowAddClassForm(false);
+                        triggerVictoryEffect();
+                        alert('Aula cadastrada na grade com sucesso!');
+                      }}
+                      className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs"
+                    >
+                      <div>
+                        <label className="font-bold text-slate-700 block mb-1">Disciplina</label>
+                        <select
+                          name="classSubjectId"
+                          required
+                          className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-hidden"
+                        >
+                          <option value="">Selecione a matéria...</option>
+                          {subjects
+                            .filter((s) => s.category === 'college')
+                            .map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="font-bold text-slate-700 block mb-1">Dia da Semana</label>
+                        <select
+                          name="classDay"
+                          defaultValue={selectedTimetableDay}
+                          className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-hidden"
+                        >
+                          <option value={1}>Segunda-feira</option>
+                          <option value={2}>Terça-feira</option>
+                          <option value={3}>Quarta-feira</option>
+                          <option value={4}>Quinta-feira</option>
+                          <option value={5}>Sexta-feira</option>
+                          <option value={6}>Sábado</option>
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="font-bold text-slate-700 block mb-1">Início</label>
+                          <input
+                            name="classStartTime"
+                            type="time"
+                            defaultValue="19:00"
+                            className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-hidden"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-bold text-slate-700 block mb-1">Término</label>
+                          <input
+                            name="classEndTime"
+                            type="time"
+                            defaultValue="20:40"
+                            className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-hidden"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="font-bold text-slate-700 block mb-1">Sala / Laboratório</label>
+                        <input
+                          name="classRoom"
+                          placeholder="Ex: Sala 304, Lab 2"
+                          className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-hidden"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="font-bold text-slate-700 block mb-1">Professor</label>
+                        <input
+                          name="classProfessor"
+                          placeholder="Ex: Prof. Roberto"
+                          className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-hidden"
+                        />
+                      </div>
+
+                      <div className="flex items-end">
+                        <button
+                          type="submit"
+                          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold p-2.5 rounded-xl shadow-xs transition active:scale-95"
+                        >
+                          Salvar Horário
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+
+                {/* Lista de Aulas do Dia Selecionado */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-slate-900 text-sm">
+                      Aulas de{' '}
+                      {selectedTimetableDay === 1
+                        ? 'Segunda-feira'
+                        : selectedTimetableDay === 2
+                        ? 'Terça-feira'
+                        : selectedTimetableDay === 3
+                        ? 'Quarta-feira'
+                        : selectedTimetableDay === 4
+                        ? 'Quinta-feira'
+                        : selectedTimetableDay === 5
+                        ? 'Sexta-feira'
+                        : 'Sábado'}
+                    </h3>
+                    <span className="text-xs text-slate-400 font-medium">
+                      {collegeClasses.filter((c) => c.dayOfWeek === selectedTimetableDay).length} horários
+                    </span>
+                  </div>
+
+                  {collegeClasses.filter((c) => c.dayOfWeek === selectedTimetableDay).length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {collegeClasses
+                        .filter((c) => c.dayOfWeek === selectedTimetableDay)
+                        .sort((a, b) => a.startTime.localeCompare(b.startTime))
+                        .map((cls) => {
+                          const sub = subjects.find((s) => s.id === cls.subjectId);
+
+                          return (
+                            <div
+                              key={cls.id}
+                              className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs flex items-center justify-between gap-4"
+                            >
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="w-3 h-3 rounded-full"
+                                    style={{ backgroundColor: sub?.color || '#4f46e5' }}
+                                  />
+                                  <h4 className="font-extrabold text-slate-900 text-sm">
+                                    {sub?.name || 'Disciplina'}
+                                  </h4>
+                                </div>
+
+                                <div className="flex items-center gap-3 text-xs text-slate-500 font-mono">
+                                  <span className="flex items-center gap-1 font-bold text-slate-700">
+                                    <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                                    {cls.startTime} - {cls.endTime}
+                                  </span>
+                                  {cls.room && (
+                                    <span className="flex items-center gap-1 text-slate-600">
+                                      <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                                      {cls.room}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {cls.professor && (
+                                  <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                                    <User className="w-3 h-3 text-slate-400" />
+                                    {cls.professor}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  onClick={() => startTimer('pomodoro', 25, cls.subjectId)}
+                                  className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs px-3 py-2 rounded-xl transition"
+                                  title="Iniciar sessão de estudo para esta matéria"
+                                >
+                                  <Play className="w-3.5 h-3.5 fill-current" />
+                                  Estudar
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    if (confirm('Remover esta aula da grade?')) {
+                                      await db.collegeClasses.delete(cls.id);
+                                    }
+                                  }}
+                                  className="text-slate-300 hover:text-rose-500 p-1.5 transition"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  ) : (
+                    <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-2">
+                      <Clock className="w-10 h-10 text-indigo-300 mx-auto" />
+                      <h4 className="font-bold text-slate-800 text-sm">Sem aulas cadastradas neste dia</h4>
+                      <p className="text-xs text-slate-400">
+                        Clique em "+ Adicionar Aula" acima para preencher sua grade deste dia.
+                      </p>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
+
+            {/* SUB-ABA 3: IMPORTADOR INTELIGENTE DE DOCUMENTOS */}
+            {collegeSubTab === 'import' && (
+              <div className="bg-gradient-to-br from-indigo-50/70 via-white to-amber-50/50 p-6 rounded-3xl border border-indigo-100 shadow-xs space-y-3">
+                <div className="flex items-center gap-2">
+                  <FileUp className="w-5 h-5 text-indigo-600" />
+                  <h3 className="font-extrabold text-slate-900 text-sm">
+                    Importar Ementa, Cronograma ou Calendário de Provas
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Envie um arquivo de texto, markdown ou ementa (`.txt`, `.md`, `.csv`). O FocusUp extrairá automaticamente
+                  as matérias, datas de provas e tópicos da trilha para organizar sua rotina.
+                </p>
+
+                <div className="pt-1">
+                  <label className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl cursor-pointer shadow-xs transition active:scale-95">
+                    <FileText className="w-4 h-4" />
+                    Selecionar Documento (.txt, .md, .csv)
+                    <input
+                      type="file"
+                      accept=".txt,.md,.csv,.text"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const text = await file.text();
+                        const result = parseStudyDocument(text, file.name);
+
+                        if (result.createdSubjects.length > 0) {
+                          await db.subjects.bulkAdd(result.createdSubjects);
+                          // Inicializar notas padrão para matérias criadas
+                          for (const s of result.createdSubjects) {
+                            await db.subjectGrades.add(createDefaultGradeConfig(s.id, 6.0));
+                          }
+                        }
+                        if (result.createdTasks.length > 0) {
+                          await db.tasks.bulkAdd(result.createdTasks);
+                        }
+                        if (result.createdTracks.length > 0) {
+                          await db.learningPaths.bulkAdd(result.createdTracks);
+                        }
+
+                        triggerVictoryEffect();
+                        alert(result.summary);
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* MODAL: CALCULADORA DE NOTAS & SIMULADOR DE PROVA FINAL (Feature 1) */}
+            {activeGradeSubjectId && (() => {
+              const activeSub = subjects.find((s) => s.id === activeGradeSubjectId);
+              const activeConfig: SubjectGradeConfig =
+                subjectGrades.find((g) => g.subjectId === activeGradeSubjectId) ||
+                createDefaultGradeConfig(activeGradeSubjectId);
+              const activeSim = calculateGradeSimulation(activeConfig);
+
+              return (
+                <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+                  <div className="bg-white max-w-lg w-full rounded-3xl p-6 shadow-2xl border border-slate-200 space-y-5 max-h-[90vh] overflow-y-auto">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Calculator className="w-5 h-5 text-indigo-600" />
+                        <div>
+                          <h3 className="font-extrabold text-slate-900 text-base">
+                            Simulador de Notas: {activeSub?.name || 'Disciplina'}
+                          </h3>
+                          <div className="text-[10px] text-slate-400">
+                            Configure pesos e notas para prever sua aprovação ou necessidade de exame
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setActiveGradeSubjectId(null)}
+                        className="text-slate-400 hover:text-slate-700 font-black text-lg p-1"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* Resumo da Simulação em Tempo Real */}
+                    <div
+                      className={`p-4 rounded-2xl border space-y-2 ${
+                        activeSim.status === 'passed'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                          : activeSim.status === 'danger_exam'
+                          ? 'bg-amber-50 border-amber-200 text-amber-900'
+                          : activeSim.status === 'failed'
+                          ? 'bg-rose-50 border-rose-200 text-rose-900'
+                          : 'bg-indigo-50 border-indigo-200 text-indigo-900'
+                      }`}
+                    >
+                      <div className="text-xs font-bold leading-relaxed">{activeSim.message}</div>
+                      <div className="grid grid-cols-3 gap-2 pt-1 text-center font-mono">
+                        <div className="bg-white/80 p-2 rounded-xl">
+                          <div className="text-[10px] text-slate-500 uppercase">Média Atual</div>
+                          <div className="text-sm font-black text-slate-900">
+                            {activeSim.currentWeightedAverage !== null
+                              ? activeSim.currentWeightedAverage.toFixed(1)
+                              : '-'}
+                          </div>
+                        </div>
+                        <div className="bg-white/80 p-2 rounded-xl">
+                          <div className="text-[10px] text-slate-500 uppercase">Nota Restante</div>
+                          <div className="text-sm font-black text-indigo-700">
+                            {activeSim.neededRemainingAverage !== null
+                              ? activeSim.neededRemainingAverage.toFixed(1)
+                              : '-'}
+                          </div>
+                        </div>
+                        <div className="bg-white/80 p-2 rounded-xl">
+                          <div className="text-[10px] text-slate-500 uppercase">Exame Final</div>
+                          <div className="text-sm font-black text-amber-700">
+                            {activeSim.finalExamNeeded !== null && activeSim.finalExamNeeded !== undefined
+                              ? activeSim.finalExamNeeded.toFixed(1)
+                              : '0'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Parâmetros de Aprovação */}
+                    <div className="grid grid-cols-2 gap-3 text-xs bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                      <div>
+                        <label className="font-bold text-slate-700 block mb-1">Média Mínima para Aprovação</label>
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          max="10"
+                          defaultValue={activeConfig.passingGrade}
+                          onBlur={async (e) => {
+                            const val = Number(e.target.value);
+                            if (val > 0) {
+                              const updated = { ...activeConfig, passingGrade: val, updatedAt: Date.now() };
+                              await db.subjectGrades.put(updated);
+                            }
+                          }}
+                          className="w-full p-2 bg-white rounded-xl border border-slate-200 font-mono font-bold text-center"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-bold text-slate-700 block mb-1">Média Mínima pós-Exame</label>
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          max="10"
+                          defaultValue={activeConfig.finalExamPassingGrade || 5.0}
+                          onBlur={async (e) => {
+                            const val = Number(e.target.value);
+                            if (val > 0) {
+                              const updated = { ...activeConfig, finalExamPassingGrade: val, updatedAt: Date.now() };
+                              await db.subjectGrades.put(updated);
+                            }
+                          }}
+                          className="w-full p-2 bg-white rounded-xl border border-slate-200 font-mono font-bold text-center"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Lista de Avaliações */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-extrabold text-slate-900">Avaliações (Provas e Trabalhos)</span>
+                        <span className="text-slate-400 font-mono">
+                          Peso total: {activeConfig.assessments.reduce((acc, a) => acc + (a.weight || 0), 0)}
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        {activeConfig.assessments.map((ass, idx) => (
+                          <div
+                            key={ass.id}
+                            className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-2xl border border-slate-100 text-xs"
+                          >
+                            <input
+                              type="text"
+                              defaultValue={ass.name}
+                              placeholder="Nome da avaliação..."
+                              onBlur={async (e) => {
+                                const newAssessments = [...activeConfig.assessments];
+                                newAssessments[idx] = { ...ass, name: e.target.value };
+                                await db.subjectGrades.put({ ...activeConfig, assessments: newAssessments, updatedAt: Date.now() });
+                              }}
+                              className="flex-1 p-1.5 bg-white rounded-xl border border-slate-200 font-bold"
+                            />
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-slate-400 font-bold">Peso:</span>
+                              <input
+                                type="number"
+                                min="1"
+                                max="100"
+                                defaultValue={ass.weight}
+                                onBlur={async (e) => {
+                                  const val = Number(e.target.value) || 1;
+                                  const newAssessments = [...activeConfig.assessments];
+                                  newAssessments[idx] = { ...ass, weight: val };
+                                  await db.subjectGrades.put({ ...activeConfig, assessments: newAssessments, updatedAt: Date.now() });
+                                }}
+                                className="w-12 p-1.5 bg-white rounded-xl border border-slate-200 text-center font-mono font-bold"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-slate-400 font-bold">Nota:</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                max="10"
+                                defaultValue={typeof ass.score === 'number' ? ass.score : ''}
+                                placeholder="Pendente"
+                                onBlur={async (e) => {
+                                  const val = e.target.value === '' ? undefined : Number(e.target.value);
+                                  const newAssessments = [...activeConfig.assessments];
+                                  newAssessments[idx] = { ...ass, score: val };
+                                  await db.subjectGrades.put({ ...activeConfig, assessments: newAssessments, updatedAt: Date.now() });
+                                }}
+                                className="w-16 p-1.5 bg-white rounded-xl border border-slate-200 text-center font-mono font-black"
+                              />
+                            </div>
+                            <button
+                              onClick={async () => {
+                                if (activeConfig.assessments.length <= 1) {
+                                  alert('A disciplina precisa de pelo menos 1 avaliação.');
+                                  return;
+                                }
+                                const newAssessments = activeConfig.assessments.filter((_, i) => i !== idx);
+                                await db.subjectGrades.put({ ...activeConfig, assessments: newAssessments, updatedAt: Date.now() });
+                              }}
+                              className="text-slate-300 hover:text-rose-500 p-1"
+                              title="Remover avaliação"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={async () => {
+                          const newAssessments: Assessment[] = [
+                            ...activeConfig.assessments,
+                            { id: `ass-${Date.now()}`, name: `Avaliação ${activeConfig.assessments.length + 1}`, weight: 2 },
+                          ];
+                          await db.subjectGrades.put({ ...activeConfig, assessments: newAssessments, updatedAt: Date.now() });
+                        }}
+                        className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
+                      >
+                        + Adicionar Prova ou Trabalho
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => setActiveGradeSubjectId(null)}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-2xl transition shadow-xs text-xs active:scale-98"
+                    >
+                      Concluir e Salvar Simulação
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 

@@ -9,6 +9,8 @@ import type {
   StudyPlan,
   WeeklyReview,
   PortfolioProject,
+  CollegeClassSchedule,
+  SubjectGradeConfig,
 } from '../types';
 
 export class FocusUpDatabase extends Dexie {
@@ -21,6 +23,8 @@ export class FocusUpDatabase extends Dexie {
   studyPlans!: Table<StudyPlan, string>;
   weeklyReviews!: Table<WeeklyReview, string>;
   portfolioProjects!: Table<PortfolioProject, string>;
+  collegeClasses!: Table<CollegeClassSchedule, string>;
+  subjectGrades!: Table<SubjectGradeConfig, string>;
 
   constructor() {
     super('FocusUpDB');
@@ -35,6 +39,11 @@ export class FocusUpDatabase extends Dexie {
       studyPlans: 'id, weekStartDate, weekEndDate, status, createdAt, updatedAt',
       weeklyReviews: 'id, weekStartDate, weekEndDate, createdAt, updatedAt',
       portfolioProjects: 'id, status, targetDate, createdAt, updatedAt',
+    });
+
+    this.version(2).stores({
+      collegeClasses: 'id, subjectId, dayOfWeek, startTime, createdAt, updatedAt',
+      subjectGrades: 'id, subjectId, updatedAt',
     });
   }
 }
@@ -213,5 +222,49 @@ export async function seedInitialData() {
     ];
 
     await db.learningPaths.bulkAdd(defaultPaths);
+  }
+
+  const collegeCount = await db.subjects.where('category').equals('college').count();
+  if (collegeCount === 0) {
+    const now = Date.now();
+    const collegeSub: Subject = {
+      id: 'col-eng-soft',
+      name: 'Engenharia de Software',
+      description: 'Padrões de projeto, arquitetura de sistemas e metodologias ágeis',
+      color: '#4f46e5',
+      priority: 'high',
+      category: 'college',
+      targetMinutesPerWeek: 180,
+      deadline: '2026-11-15',
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await db.subjects.add(collegeSub);
+
+    await db.collegeClasses.add({
+      id: 'class-1',
+      subjectId: 'col-eng-soft',
+      dayOfWeek: 1, // Segunda-feira
+      startTime: '19:00',
+      endTime: '20:40',
+      room: 'Sala 304 - Prédio Central',
+      professor: 'Prof. André Silveira',
+      notes: 'Trazer notebook com ambiente Node/Java configurado',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await db.subjectGrades.add({
+      id: 'grade-col-eng-soft',
+      subjectId: 'col-eng-soft',
+      passingGrade: 6.0,
+      finalExamPassingGrade: 5.0,
+      assessments: [
+        { id: 'ass-p1', name: 'P1 (Prova Teórica)', weight: 4, score: 7.0 },
+        { id: 'ass-p2', name: 'P2 (Projeto Prático)', weight: 6 },
+      ],
+      updatedAt: now,
+    });
   }
 }
