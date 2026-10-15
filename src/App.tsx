@@ -7,9 +7,7 @@ import {
   Play,
   Pause,
   CheckCircle2,
-  Calendar,
   Layers,
-  BookOpen,
   Trash2,
   Download,
   Upload,
@@ -43,7 +41,6 @@ import { HabitsCard } from './components/HabitsCard';
 import { HabitsSection } from './components/HabitsSection';
 import { WeeklyReportCard } from './components/WeeklyReportCard';
 import { WeeklyReportSection } from './components/WeeklyReportSection';
-import { LearningTracksSection } from './components/LearningTracksSection';
 import { syncTrackWithTaskStatus } from './lib/trackOrganizerEngine';
 import { getHabitLogForDate, getHabitStatusForDate } from './lib/habitEngine';
 import { GymSection } from './components/GymSection';
@@ -56,7 +53,6 @@ import {
   clearTimerState,
 } from './lib/timerEngine';
 import { formatDateToLocalYYYYMMDD } from './lib/srsEngine';
-import { generateWeeklySchedule, type SchedulerOutput } from './lib/schedulerEngine';
 import {
   exportAllData,
   validateBackupString,
@@ -94,10 +90,9 @@ import type {
 } from './types';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'tracks' | 'college' | 'gym' | 'habits' | 'weekly_report' | 'schedule' | 'progress' | 'settings'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'college' | 'gym' | 'habits' | 'weekly_report' | 'progress' | 'settings'>('home');
   const [now, setNow] = useState(Date.now());
   const [currentReview, setCurrentReview] = useState<WeeklyReview | null>(null);
-  const [currentSchedule, setCurrentSchedule] = useState<SchedulerOutput | null>(null);
 
   // Ref e auto-scroll para a barra de navegação móvel espaçosa
   const mobileNavRef = useRef<HTMLDivElement>(null);
@@ -128,7 +123,6 @@ export function App() {
   const uniqueSubjects = useMemo(() => deduplicateSubjectsList(subjects), [subjects]);
   const tasks = useLiveQuery(() => db.tasks.toArray()) || [];
   const flashcards = useLiveQuery(() => db.flashcards.filter((f) => !f.archived).toArray()) || [];
-  const learningPaths = useLiveQuery(() => db.learningPaths.filter((lp) => !lp.archived).toArray()) || [];
   const sessions = useLiveQuery(() => db.studySessions.toArray()) || [];
   const preferences = useLiveQuery(() => db.preferences.get('user_preferences'));
   const collegeClasses = useLiveQuery(() => db.collegeClasses.toArray()) || [];
@@ -502,17 +496,6 @@ export function App() {
             )}
           </button>
           <button
-            onClick={() => setActiveTab('tracks')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
-              activeTab === 'tracks'
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <BookOpen className="w-5 h-5" />
-            Trilhas & Missões
-          </button>
-          <button
             onClick={() => setActiveTab('college')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
               activeTab === 'college'
@@ -555,17 +538,6 @@ export function App() {
           >
             <FileText className="w-5 h-5 text-indigo-500" />
             Relatório Semanal
-          </button>
-          <button
-            onClick={() => setActiveTab('schedule')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
-              activeTab === 'schedule'
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <Calendar className="w-5 h-5" />
-            Estratégia Semanal
           </button>
           <button
             onClick={() => setActiveTab('progress')}
@@ -1193,16 +1165,6 @@ export function App() {
         )}
 
 
-
-        {/* TAB: TRILHAS & MISSÕES */}
-        {activeTab === 'tracks' && (
-          <LearningTracksSection
-            learningPaths={learningPaths}
-            subjects={uniqueSubjects}
-            onStartFocus={prepareTimer}
-            onTriggerVictory={triggerVictoryEffect}
-          />
-        )}
 
         {/* TAB: FACULDADE (MATÉRIAS ACADÊMICAS, NOTAS & GRADE HORÁRIA) */}
         {activeTab === 'college' && (
@@ -2542,153 +2504,6 @@ export function App() {
           />
         )}
 
-        {/* TAB: ESTRATÉGIA SEMANAL */}
-        {activeTab === 'schedule' && (
-          <div className="space-y-6">
-            <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-black text-slate-900">Estratégia Semanal Heurística</h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  Distribuição baseada na capacidade diária real configurada pelo estudante.
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  const schedule = generateWeeklySchedule({
-                    weekStartDate: new Date(),
-                    availability: preferences?.weeklyAvailability || [],
-                    pendingTasks: tasks.filter((t) => t.status === 'pending'),
-                    dueFlashcards: [],
-                  });
-                  setCurrentSchedule(schedule);
-                  triggerVictoryEffect();
-                }}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-xs font-black transition active:scale-95 shadow-xs"
-              >
-                Gerar Plano Semanal
-              </button>
-            </header>
-
-            {/* Disponibilidade Semanal */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
-              <h3 className="font-bold text-slate-900 text-sm">Disponibilidade Semanal Configurada</h3>
-              <div className="grid grid-cols-7 gap-2 text-center">
-                {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((day, idx) => {
-                  const avail = preferences?.weeklyAvailability.find((a) => a.dayOfWeek === idx);
-                  const gymRoutineId = gymPreferences?.plannedRoutineMap?.[idx];
-                  const plannedRoutine = gymRoutines.find((r) => r.id === gymRoutineId);
-
-                  return (
-                    <div key={day} className="p-3 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col justify-between">
-                      <div>
-                        <div className="text-[10px] font-bold text-slate-400">{day}</div>
-                        <div className="text-sm font-black text-slate-900 mt-1">{avail?.minutesAvailable || 0}m foco</div>
-                      </div>
-                      {plannedRoutine && (
-                        <div className="mt-2 text-[9px] font-black text-amber-700 bg-amber-50 px-1 py-0.5 rounded-md border border-amber-200 truncate" title={`Treino: ${plannedRoutine.name}`}>
-                          🏋️ {plannedRoutine.name.split('—')[0].trim()}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Detecção Transparente de Sobrecarga */}
-            {currentSchedule && currentSchedule.unallocatedTasks.length > 0 && (
-              <div className="bg-amber-50 p-6 rounded-3xl border border-amber-200 shadow-xs space-y-3">
-                <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
-                  <AlertTriangle className="w-5 h-5 text-amber-600" />
-                  Alerta de Sobrecarga: {currentSchedule.totalOverloadMinutes}m excedentes
-                </div>
-                <p className="text-xs text-amber-700">
-                  As seguintes tarefas não puderam ser alocadas nesta semana pois o tempo diário configurado atingiu o limite:
-                </p>
-                <div className="space-y-1.5 pt-1">
-                  {currentSchedule.unallocatedTasks.map((t) => (
-                    <div
-                      key={t.id}
-                      className="p-2.5 rounded-xl bg-white/80 border border-amber-200/80 text-xs text-amber-900 font-medium flex items-center justify-between"
-                    >
-                      <span>• {t.title}</span>
-                      <span className="font-bold text-amber-700">{t.estimatedMinutes || 30}m</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Distribuição Diária das Atividades Geradas */}
-            {currentSchedule && (
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-5">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div>
-                    <h3 className="font-extrabold text-slate-900 text-base">Agenda de Estudos da Semana</h3>
-                    <p className="text-xs text-slate-400">Total alocado: {currentSchedule.totalPlannedMinutes} minutos</p>
-                  </div>
-                  <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
-                    {currentSchedule.plannedActivities.length} Atividades Programadas
-                  </span>
-                </div>
-
-                <div className="space-y-3">
-                  {currentSchedule.dailyLoads.map((day) => {
-                    const dayActivities = currentSchedule.plannedActivities.filter((a) => a.date === day.date);
-                    const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-
-                    return (
-                      <div key={day.date} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-slate-800">
-                            {dayNames[day.dayOfWeek]} ({day.date})
-                          </span>
-                          <span className="text-[11px] font-mono text-slate-500 font-bold">
-                            {day.allocatedMinutes}m / {day.capacityMinutes}m disponíveis
-                          </span>
-                        </div>
-
-                        {dayActivities.length > 0 ? (
-                          <div className="space-y-1.5">
-                            {dayActivities.map((act) => {
-                              const taskObj = tasks.find((t) => t.id === act.taskId);
-                              const subObj = subjects.find((s) => s.id === act.subjectId);
-
-                              return (
-                                <div
-                                  key={act.id}
-                                  className="p-2.5 rounded-xl bg-white border border-slate-200 text-xs flex items-center justify-between shadow-xs"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <div
-                                      className="w-2.5 h-2.5 rounded-full"
-                                      style={{ backgroundColor: subObj?.color || '#6366f1' }}
-                                    />
-                                    <span className="font-semibold text-slate-800">
-                                      {act.flashcardReview
-                                        ? 'Sessão de Revisão de Flashcards'
-                                        : taskObj?.title || 'Atividade de Estudo'}
-                                    </span>
-                                  </div>
-                                  <span className="font-mono text-[11px] text-indigo-600 font-bold">
-                                    {act.plannedMinutes}m
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <p className="text-[11px] text-slate-400 italic">Nenhuma atividade alocada para este dia.</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* TAB: CONQUISTAS & MÉTRICAS */}
         {activeTab === 'progress' && (
           <div className="space-y-6">
@@ -3025,9 +2840,7 @@ export function App() {
             { id: 'gym' as const, label: 'Treino', icon: Dumbbell, activeColor: 'text-rose-600 bg-rose-50/90 border-rose-200 shadow-xs' },
             { id: 'habits' as const, label: 'Hábitos', icon: CheckSquare, activeColor: 'text-emerald-600 bg-emerald-50/90 border-emerald-200 shadow-xs' },
             { id: 'college' as const, label: 'Facul', icon: GraduationCap, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
-            { id: 'tracks' as const, label: 'Trilhas', icon: BookOpen, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
             { id: 'weekly_report' as const, label: 'Relatório', icon: FileText, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
-            { id: 'schedule' as const, label: 'Estratégia', icon: Calendar, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
             { id: 'progress' as const, label: 'Conquistas', icon: Trophy, activeColor: 'text-amber-600 bg-amber-50/90 border-amber-200 shadow-xs' },
             { id: 'settings' as const, label: 'Cofre', icon: Shield, activeColor: 'text-slate-700 bg-slate-100 border-slate-300 shadow-xs' },
           ].map((tab) => {
