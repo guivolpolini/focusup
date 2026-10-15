@@ -714,7 +714,6 @@ export function App() {
                   }
                 }}
                 onOpenNewHabitModal={() => setActiveTab('habits')}
-                onOpenNumericModal={() => setActiveTab('habits')}
               />
               <WeeklyReportCard
                 sessions={sessions}

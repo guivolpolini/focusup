@@ -28,7 +28,6 @@ interface HabitsCardProps {
   onOpenHabitsPage: () => void;
   onToggleHabit: (habit: Habit) => Promise<void>;
   onOpenNewHabitModal: () => void;
-  onOpenNumericModal: (habit: Habit) => void;
 }
 
 // Mapeamento dinâmico de ícones
@@ -61,7 +60,6 @@ export function HabitsCard({
   onOpenHabitsPage,
   onToggleHabit,
   onOpenNewHabitModal,
-  onOpenNumericModal,
 }: HabitsCardProps) {
   const todayStr = formatDateToLocalYYYYMMDD(new Date());
   const dailyProgress = calculateHabitsDailyProgress(habits, habitLogs, todayStr);
@@ -122,71 +120,48 @@ export function HabitsCard({
               return (
                 <div
                   key={item.habit.id}
-                  className={`p-2.5 rounded-2xl border transition flex items-center justify-between gap-3 ${
+                  onClick={() => onToggleHabit(item.habit)}
+                  className={`p-2.5 rounded-2xl border transition-all cursor-pointer select-none flex items-center justify-between gap-3 ${
                     item.completed
-                      ? 'bg-emerald-50/50 border-emerald-200/70 text-slate-800'
-                      : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100/70'
+                      ? 'bg-emerald-50/60 border-emerald-200/90 text-slate-800'
+                      : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100/80 text-slate-900'
                   }`}
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div
-                      className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-                      style={{
-                        backgroundColor: `${item.habit.color}18`,
-                        color: item.habit.color,
-                      }}
+                      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition ${
+                        item.completed ? 'bg-emerald-500 text-white shadow-2xs' : 'text-slate-300'
+                      }`}
                     >
-                      {renderHabitIcon(item.habit.icon, 'w-3.5 h-3.5')}
+                      {item.completed ? (
+                        <CheckCircle2 className="w-5 h-5 fill-emerald-500 text-white stroke-2" />
+                      ) : (
+                        <Circle className="w-5 h-5 stroke-[1.8]" />
+                      )}
                     </div>
                     <div className="truncate">
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className={`text-xs font-bold truncate ${
-                            item.completed ? 'line-through text-slate-400' : 'text-slate-800'
-                          }`}
-                        >
-                          {item.habit.name}
-                        </span>
-                        {streak.currentStreak > 1 && (
-                          <span className="inline-flex items-center gap-0.5 text-[9px] font-mono font-bold text-amber-600 bg-amber-50 px-1 py-0.2 rounded-md border border-amber-200/60">
-                            <Flame className="w-2.5 h-2.5 fill-amber-500 text-amber-500" />
-                            {streak.currentStreak}
-                          </span>
-                        )}
-                      </div>
-                      {item.habit.targetType === 'numeric' && (
-                        <span className="text-[10px] text-slate-400 font-mono block">
-                          {item.currentValue} / {item.targetValue} {item.habit.unit || ''}
-                        </span>
-                      )}
+                      <span
+                        className={`text-xs font-bold block truncate ${
+                          item.completed ? 'line-through text-slate-400 font-medium' : 'text-slate-800'
+                        }`}
+                      >
+                        {item.habit.name}
+                      </span>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 shrink-0">
-                    {item.habit.targetType === 'numeric' && (
-                      <button
-                        onClick={() => onOpenNumericModal(item.habit)}
-                        className="text-[10px] font-bold text-slate-500 hover:text-indigo-600 px-2 py-1 bg-white rounded-lg border border-slate-200 transition"
-                      >
-                        {item.currentValue > 0 ? `${item.currentValue}${item.habit.unit || ''}` : '+ Registrar'}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => onToggleHabit(item.habit)}
-                      className={`w-7 h-7 rounded-xl flex items-center justify-center transition ${
+                  {streak.currentStreak > 0 && (
+                    <span
+                      className={`inline-flex items-center gap-0.5 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md border shrink-0 ${
                         item.completed
-                          ? 'bg-emerald-500 text-white shadow-2xs'
-                          : 'text-slate-300 hover:text-emerald-500'
+                          ? 'text-emerald-700 bg-emerald-100/60 border-emerald-200'
+                          : 'text-amber-600 bg-amber-50 border-amber-200/60'
                       }`}
-                      title={item.completed ? 'Desmarcar hábito' : 'Concluir hábito'}
                     >
-                      {item.completed ? (
-                        <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
-                      ) : (
-                        <Circle className="w-4 h-4 stroke-[1.8]" />
-                      )}
-                    </button>
-                  </div>
+                      <Flame className="w-3 h-3 fill-amber-500 text-amber-500" />
+                      {streak.currentStreak}
+                    </span>
+                  )}
                 </div>
               );
             })
