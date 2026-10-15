@@ -9,6 +9,7 @@ import {
   detectItemType,
   extractEstimatedMinutes,
 } from '../lib/trackOrganizerEngine';
+import { formatDateToLocalYYYYMMDD } from '../lib/srsEngine';
 
 describe('trackOrganizerEngine - Organização e Pacing de Trilhas', () => {
   it('detecta tipos de itens corretamente', () => {
@@ -89,14 +90,15 @@ Projeto: Subir stack com Postgres e Node
 - Projeto Servidor HTTP
 `;
 
+    const today = formatDateToLocalYYYYMMDD(new Date());
     const path = parseRawLearningPathText(rawMarkdown, {
       defaultHoursPerWeek: 2,
-      startDate: '2026-10-14',
+      startDate: today,
     });
 
     const { summary } = organizeTrackPacing(path, {
       targetHoursPerWeek: 2,
-      startDate: '2026-10-14',
+      startDate: today,
     });
 
     expect(summary.totalItems).toBe(4);
