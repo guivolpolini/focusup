@@ -484,18 +484,15 @@ export function App() {
             Dashboard
           </button>
           <button
-            onClick={() => setActiveTab('focus')}
+            onClick={() => setActiveTab('finance')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
-              activeTab === 'focus'
+              activeTab === 'finance'
                 ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
                 : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
-            <Zap className="w-5 h-5 text-amber-500" />
-            Foco
-            {timerState.status === 'running' && (
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping ml-auto" />
-            )}
+            <Wallet className="w-5 h-5 text-emerald-500" />
+            Financeiro
           </button>
           <button
             onClick={() => setActiveTab('gym')}
@@ -520,15 +517,18 @@ export function App() {
             Hábitos
           </button>
           <button
-            onClick={() => setActiveTab('finance')}
+            onClick={() => setActiveTab('focus')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
-              activeTab === 'finance'
+              activeTab === 'focus'
                 ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
                 : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
-            <Wallet className="w-5 h-5 text-emerald-500" />
-            Financeiro
+            <Zap className="w-5 h-5 text-amber-500" />
+            Foco
+            {timerState.status === 'running' && (
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping ml-auto" />
+            )}
           </button>
           <button
             onClick={() => setActiveTab('weekly_report')}
@@ -2693,18 +2693,18 @@ export function App() {
         )}
       </main>
 
-      {/* Navegação Inferior Mobile — Espaçosa, Touch-Friendly & Rolagem Suave */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200/90 z-50 py-2.5 px-2 shadow-lg">
+      {/* Navegação Inferior Mobile — Compacta, Ergonômica & Touch-Friendly */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200/90 z-50 py-1.5 px-1 shadow-lg">
         <div
           ref={mobileNavRef}
-          className="flex items-center gap-2 overflow-x-auto scrollbar-none px-2 py-0.5"
+          className="flex items-center gap-1 overflow-x-auto scrollbar-none px-1 py-0.5"
         >
           {[
             { id: 'home' as const, label: 'Dashboard', icon: Layers, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
-            { id: 'focus' as const, label: 'Foco', icon: Zap, activeColor: 'text-amber-600 bg-amber-50/90 border-amber-200 shadow-xs' },
+            { id: 'finance' as const, label: 'Finanças', icon: Wallet, activeColor: 'text-emerald-600 bg-emerald-50/90 border-emerald-200 shadow-xs' },
             { id: 'gym' as const, label: 'Treino', icon: Dumbbell, activeColor: 'text-rose-600 bg-rose-50/90 border-rose-200 shadow-xs' },
             { id: 'habits' as const, label: 'Hábitos', icon: CheckSquare, activeColor: 'text-emerald-600 bg-emerald-50/90 border-emerald-200 shadow-xs' },
-            { id: 'finance' as const, label: 'Finanças', icon: Wallet, activeColor: 'text-emerald-600 bg-emerald-50/90 border-emerald-200 shadow-xs' },
+            { id: 'focus' as const, label: 'Foco', icon: Zap, activeColor: 'text-amber-600 bg-amber-50/90 border-amber-200 shadow-xs' },
             { id: 'weekly_report' as const, label: 'Relatório', icon: FileText, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
             { id: 'progress' as const, label: 'Conquistas', icon: Trophy, activeColor: 'text-amber-600 bg-amber-50/90 border-amber-200 shadow-xs' },
             { id: 'settings' as const, label: 'Cofre', icon: Shield, activeColor: 'text-slate-700 bg-slate-100 border-slate-300 shadow-xs' },
@@ -2716,14 +2716,14 @@ export function App() {
                 key={tab.id}
                 data-active={isActive ? 'true' : 'false'}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex flex-col items-center justify-center min-w-[70px] px-3 py-1.5 rounded-2xl border transition-all active:scale-95 shrink-0 ${
+                className={`flex flex-col items-center justify-center min-w-[54px] px-1.5 py-1 rounded-xl border transition-all active:scale-95 shrink-0 ${
                   isActive
                     ? `${tab.activeColor} font-black`
                     : 'border-transparent text-slate-400 hover:text-slate-600 font-bold hover:bg-slate-50'
                 }`}
               >
                 <Icon className={`w-5 h-5 ${isActive ? '' : 'text-slate-400'}`} />
-                <span className="text-[11px] mt-0.5 tracking-tight whitespace-nowrap">{tab.label}</span>
+                <span className="text-[10px] mt-0.5 tracking-tight whitespace-nowrap">{tab.label}</span>
               </button>
             );
           })}
