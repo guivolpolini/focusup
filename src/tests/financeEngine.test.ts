@@ -7,8 +7,13 @@ import {
   generateInstallmentTransactions,
   calculateMonthlySummary,
   parseCSVTransactions,
+  getRecurringOccurrencesForMonth,
+  buildRecurringPaymentTransaction,
+  calculateFixedVsVariable,
+  calculatePreviousMonthComparison,
+  calculateMonthlyEvolution,
 } from '../lib/financeEngine';
-import type { FinanceTransaction } from '../types';
+import type { FinanceTransaction, FinanceRecurringExpense } from '../types';
 
 describe('financeEngine', () => {
   describe('Formatação e conversão monetária BRL', () => {
@@ -162,4 +167,177 @@ describe('financeEngine', () => {
       expect(result.rows[1].amountInCents).toBe(20000);
     });
   });
+
+  describe('Gastos Fixos e Recorrências (Zero Duplicidade)', () => {
+    const mockRecurrings: FinanceRecurringExpense[] = [
+      {
+        id: 'rec_aluguel',
+        name: 'Aluguel',
+        amountInCents: 180000, // R$ 1.800,00
+        categoryId: 'cat_moradia',
+        firstDueDate: '2026-09-10',
+        frequency: 'monthly',
+        paymentMethod: 'pix',
+        status: 'active',
+        createdAt: 1000,
+        updatedAt: 1000,
+      },
+      {
+        id: 'rec_internet',
+        name: 'Internet Fibra',
+        amountInCents: 12000, // R$ 120,00
+        categoryId: 'cat_assinaturas',
+        firstDueDate: '2026-10-20',
+        frequency: 'monthly',
+        paymentMethod: 'debit',
+        status: 'active',
+        createdAt: 1000,
+        updatedAt: 1000,
+      },
+      {
+        id: 'rec_pausado',
+        name: 'Streaming Pausado',
+        amountInCents: 3990,
+        categoryId: 'cat_assinaturas',
+        firstDueDate: '2026-08-05',
+        frequency: 'monthly',
+        paymentMethod: 'credit',
+        status: 'paused',
+        createdAt: 1000,
+        updatedAt: 1000,
+      },
+    ];
+
+    it('gera ocorrências determinísticas e identifica contas atrasadas, pendentes e pausadas', () => {
+      // Referência: hoje é 2026-10-15 -> Aluguel (10/10) está atrasado, Internet (20/10) pendente, Streaming pausado
+      const summary = getRecurringOccurrencesForMonth(
+        mockRecurrings,
+        [],
+        '2026-10',
+        '2026-10-15'
+      );
+
+      expect(summary.occurrences).toHaveLength(3);
+      const aluguel = summary.occurrences.find((o) => o.recurringId === 'rec_aluguel')!;
+      const internet = summary.occurrences.find((o) => o.recurringId === 'rec_internet')!;
+      const pausado = summary.occurrences.find((o) => o.recurringId === 'rec_pausado')!;
+
+      expect(aluguel.status).toBe('overdue');
+      expect(internet.status).toBe('pending');
+      expect(pausado.status).toBe('paused');
+
+      // Pausados não entram no total pendente/previsto ativo
+      expect(summary.totalExpectedInCents).toBe(192000); // 180000 + 12000
+      expect(summary.totalPendingInCents).toBe(192000);
+      expect(summary.totalPaidInCents).toBe(0);
+      expect(summary.overdueCount).toBe(1);
+      expect(summary.pendingCount).toBe(2);
+    });
+
+    it('marca ocorrência como paga de forma idempotente sem duplicar transação', () => {
+      const summaryBefore = getRecurringOccurrencesForMonth(
+        mockRecurrings,
+        [],
+        '2026-10',
+        '2026-10-15'
+      );
+      const aluguelOcc = summaryBefore.occurrences.find((o) => o.recurringId === 'rec_aluguel')!;
+
+      const paidTx1 = buildRecurringPaymentTransaction({
+        occurrence: aluguelOcc,
+        paidDate: '2026-10-10',
+      });
+      const paidTx2 = buildRecurringPaymentTransaction({
+        occurrence: aluguelOcc,
+        paidDate: '2026-10-10',
+        existingTransaction: paidTx1,
+      });
+
+      // Mesmo ID determinístico -> put() no banco nunca cria duplicata
+      expect(paidTx1.id).toBe('tx_rec_rec_aluguel_2026-10-10');
+      expect(paidTx2.id).toBe(paidTx1.id);
+
+      const summaryAfter = getRecurringOccurrencesForMonth(
+        mockRecurrings,
+        [paidTx1],
+        '2026-10',
+        '2026-10-15'
+      );
+
+      expect(summaryAfter.paidCount).toBe(1);
+      expect(summaryAfter.totalPaidInCents).toBe(180000);
+      expect(summaryAfter.totalPendingInCents).toBe(12000); // resta apenas Internet
+    });
+
+    it('calcula proporção Fixos vs Variáveis e evolução/comparativo mensal com precisão', () => {
+      const aluguelTx: FinanceTransaction = {
+        id: 'tx_rec_rec_aluguel_2026-10-10',
+        type: 'expense',
+        amountInCents: 180000,
+        description: 'Aluguel',
+        categoryId: 'cat_moradia',
+        date: '2026-10-10',
+        paymentMethod: 'pix',
+        recurringExpenseId: 'rec_aluguel',
+        occurrenceKey: 'rec_aluguel_2026-10-10',
+        createdAt: 1000,
+        updatedAt: 1000,
+      };
+      const variableTx: FinanceTransaction = {
+        id: 'tx_var_1',
+        type: 'expense',
+        amountInCents: 48000, // R$ 480,00
+        description: 'Mercado Semanal',
+        categoryId: 'cat_alimentacao',
+        date: '2026-10-12',
+        paymentMethod: 'debit',
+        createdAt: 1000,
+        updatedAt: 1000,
+      };
+      const prevMonthTx: FinanceTransaction = {
+        id: 'tx_prev_1',
+        type: 'expense',
+        amountInCents: 100000, // R$ 1.000,00 em setembro
+        description: 'Despesa Setembro',
+        categoryId: 'cat_moradia',
+        date: '2026-09-15',
+        paymentMethod: 'pix',
+        createdAt: 1000,
+        updatedAt: 1000,
+      };
+
+      const recSummary = getRecurringOccurrencesForMonth(
+        mockRecurrings,
+        [aluguelTx, variableTx, prevMonthTx],
+        '2026-10',
+        '2026-10-15'
+      );
+
+      const fv = calculateFixedVsVariable(
+        [aluguelTx, variableTx, prevMonthTx],
+        recSummary,
+        '2026-10'
+      );
+      expect(fv.fixedRealizedInCents).toBe(180000);
+      expect(fv.fixedPendingInCents).toBe(12000);
+      expect(fv.fixedTotalInCents).toBe(192000);
+      expect(fv.variableRealizedInCents).toBe(48000);
+      expect(fv.fixedPercentage).toBe(80); // 1920 / 2400 = 80%
+      expect(fv.variablePercentage).toBe(20);
+
+      const comp = calculatePreviousMonthComparison(
+        [aluguelTx, variableTx, prevMonthTx],
+        '2026-10'
+      );
+      expect(comp.hasPreviousData).toBe(true);
+      expect(comp.previousExpenseInCents).toBe(100000);
+      expect(comp.currentExpenseInCents).toBe(228000);
+      expect(comp.expenseDiffInCents).toBe(128000);
+
+      const evo = calculateMonthlyEvolution([aluguelTx, variableTx, prevMonthTx], '2026-10', 3);
+      expect(evo.hasAnyData).toBe(true);
+      expect(evo.points).toHaveLength(3);
+    });
+  });
 });
+

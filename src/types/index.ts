@@ -481,6 +481,8 @@ export interface WeeklyComparison {
 
 export type FinancePaymentMethod = 'money' | 'pix' | 'debit' | 'credit' | 'other';
 export type FinanceTransactionType = 'income' | 'expense';
+export type FinanceRecurringFrequency = 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+export type FinanceRecurringStatus = 'active' | 'paused';
 
 export interface FinanceTransaction {
   id: string;
@@ -496,6 +498,23 @@ export interface FinanceTransaction {
   totalInstallments?: number; // Ex: 10
   invoiceMonth?: string; // Mês da fatura YYYY-MM (se cartão)
   isInvoicePayment?: boolean; // True se for quitação de fatura
+  recurringExpenseId?: string; // ID do gasto fixo origem (evita duplicidade)
+  occurrenceKey?: string; // Chave determinística `${recurringExpenseId}_${dueDate}`
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface FinanceRecurringExpense {
+  id: string;
+  name: string;
+  amountInCents: number; // Valor previsto em centavos
+  categoryId: string;
+  firstDueDate: string; // YYYY-MM-DD (data do primeiro vencimento)
+  frequency: FinanceRecurringFrequency;
+  paymentMethod: FinancePaymentMethod;
+  cardId?: string; // Opcional (se paymentMethod === 'credit')
+  notes?: string;
+  status: FinanceRecurringStatus;
   createdAt: number;
   updatedAt: number;
 }
@@ -526,4 +545,5 @@ export interface FinanceMonthlyBudget {
   limitInCents: number;
   updatedAt: number;
 }
+
 

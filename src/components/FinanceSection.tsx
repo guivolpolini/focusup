@@ -14,9 +14,20 @@ import {
   DollarSign,
   ArrowUpRight,
   ArrowDownRight,
-  HelpCircle,
   Percent,
   Mic,
+  CalendarClock,
+  Repeat,
+  BarChart3,
+  PieChart,
+  TrendingUp,
+  TrendingDown,
+  Edit3,
+  PauseCircle,
+  PlayCircle,
+  RotateCcw,
+  Clock,
+  ArrowRight,
 } from 'lucide-react';
 import { db } from '../lib/db';
 import {
@@ -24,12 +35,20 @@ import {
   parseBRLToCents,
   getMonthKey,
   formatMonthYear,
+  formatDateBR,
   getAdjacentMonthKey,
   calculateMonthlySummary,
   calculateCardSummary,
   generateInstallmentTransactions,
   parseCSVTransactions,
+  getRecurringOccurrencesForMonth,
+  buildRecurringPaymentTransaction,
+  calculateMonthlyEvolution,
+  calculateFixedVsVariable,
+  calculatePreviousMonthComparison,
+  getUpcomingCommitments,
   type ParsedCSVRow,
+  type RecurringOccurrence,
 } from '../lib/financeEngine';
 import { parseVoiceFinanceCommand } from '../lib/voiceFinanceParser';
 import { useSpeechRecognition } from '../lib/useSpeechRecognition';
@@ -39,16 +58,40 @@ import type {
   FinanceCategory,
   FinancePaymentMethod,
   FinanceTransactionType,
+  FinanceRecurringExpense,
+  FinanceRecurringFrequency,
+  FinanceRecurringStatus,
 } from '../types';
+
+const PAYMENT_METHOD_LABELS: Record<FinancePaymentMethod, string> = {
+  pix: 'Pix',
+  money: 'Dinheiro',
+  debit: 'Débito',
+  credit: 'Cartão de Crédito',
+  other: 'Outro',
+};
+
+const FREQUENCY_LABELS: Record<FinanceRecurringFrequency, string> = {
+  weekly: 'Semanal',
+  monthly: 'Mensal',
+  quarterly: 'Trimestral',
+  yearly: 'Anual',
+};
 
 export function FinanceSection() {
   const [currentMonthKey, setCurrentMonthKey] = useState<string>(() => getMonthKey());
-  const [activeSubTab, setActiveSubTab] = useState<'summary' | 'transactions' | 'cards'>('summary');
+  const [activeSubTab, setActiveSubTab] = useState<'summary' | 'recurring' | 'transactions' | 'cards'>('summary');
+
+  // Período do gráfico de evolução mensal (3, 6 ou 12 meses)
+  const [evolutionMonths, setEvolutionMonths] = useState<3 | 6 | 12>(6);
 
   // Filtros de Lançamentos
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Filtro da aba Gastos Fixos
+  const [recurringFilter, setRecurringFilter] = useState<'all' | 'pending' | 'paid' | 'paused'>('all');
 
   // Modais
   const [showTransactionModal, setShowTransactionModal] = useState<boolean>(false);
@@ -60,21 +103,58 @@ export function FinanceSection() {
   const [showVoiceModal, setShowVoiceModal] = useState<boolean>(false);
   const [voiceOriginText, setVoiceOriginText] = useState<string | null>(null);
 
+  // Modais de Gastos Fixos
+  const [showRecurringModal, setShowRecurringModal] = useState<boolean>(false);
+  const [editingRecurring, setEditingRecurring] = useState<FinanceRecurringExpense | null>(null);
+  const [payingOccurrence, setPayingOccurrence] = useState<RecurringOccurrence | null>(null);
+  const [payDateStr, setPayDateStr] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [payAmountStr, setPayAmountStr] = useState<string>('');
+
   // Consultas Reativas do Dexie
   const transactions = useLiveQuery(() => db.financeTransactions.toArray()) || [];
   const cards = useLiveQuery(() => db.financeCards.filter((c) => !c.isArchived).toArray()) || [];
   const categories = useLiveQuery(() => db.financeCategories.toArray()) || [];
   const budget = useLiveQuery(() => db.financeBudgets.get(`budget_${currentMonthKey}`));
+  const recurringExpenses = useLiveQuery(() => db.financeRecurring.toArray()) || [];
 
-  // Resumo do Mês
+  // Resumo do Mês (Receitas, Despesas Realizadas, Saldo Atual e Orçamento)
   const summary = useMemo(() => {
     return calculateMonthlySummary(transactions, currentMonthKey, budget);
   }, [transactions, currentMonthKey, budget]);
 
+  // Resumo de Gastos Fixos do Mês
+  const recurringSummary = useMemo(() => {
+    return getRecurringOccurrencesForMonth(recurringExpenses, transactions, currentMonthKey);
+  }, [recurringExpenses, transactions, currentMonthKey]);
+
+  // Saldo Projetado = Saldo Atual (realizado) - Contas Fixas Pendentes do Mês
+  const projectedBalanceInCents = summary.estimatedBalanceInCents - recurringSummary.totalPendingInCents;
+
   // Resumos dos Cartões
   const cardsSummary = useMemo(() => {
-    return cards.map((card) => calculateCardSummary(card, transactions));
-  }, [cards, transactions]);
+    return cards.map((card) => calculateCardSummary(card, transactions, `${currentMonthKey}-15`));
+  }, [cards, transactions, currentMonthKey]);
+
+  const totalOpenInvoicesInCents = useMemo(() => {
+    return cardsSummary.reduce((acc, cs) => acc + cs.currentInvoiceTotalInCents, 0);
+  }, [cardsSummary]);
+
+  // Análises e Gráficos do Dashboard
+  const monthlyEvolution = useMemo(() => {
+    return calculateMonthlyEvolution(transactions, currentMonthKey, evolutionMonths);
+  }, [transactions, currentMonthKey, evolutionMonths]);
+
+  const fixedVsVariable = useMemo(() => {
+    return calculateFixedVsVariable(transactions, recurringSummary, currentMonthKey);
+  }, [transactions, recurringSummary, currentMonthKey]);
+
+  const prevMonthComparison = useMemo(() => {
+    return calculatePreviousMonthComparison(transactions, currentMonthKey);
+  }, [transactions, currentMonthKey]);
+
+  const upcomingCommitments = useMemo(() => {
+    return getUpcomingCommitments(recurringSummary, cardsSummary, currentMonthKey);
+  }, [recurringSummary, cardsSummary, currentMonthKey]);
 
   // Mapeamento de Categorias por ID
   const categoryMap = useMemo(() => {
@@ -83,32 +163,41 @@ export function FinanceSection() {
     return map;
   }, [categories]);
 
-  // Lançamentos filtrados para a listagem
-  const filteredTransactions = useMemo(() => {
+  // Lançamentos do mês atual (sem filtros de busca) para "Movimentações Recentes"
+  const monthTransactions = useMemo(() => {
     return transactions
       .filter((tx) => {
-        // Filtragem por mês:
-        const txMonth = (tx.paymentMethod === 'credit' && tx.invoiceMonth) ? tx.invoiceMonth : tx.date.slice(0, 7);
-        if (txMonth !== currentMonthKey) return false;
-
-        // Tipo
-        if (filterType !== 'all' && tx.type !== filterType) return false;
-
-        // Categoria
-        if (filterCategory !== 'all' && tx.categoryId !== filterCategory) return false;
-
-        // Busca
-        if (searchQuery.trim()) {
-          const q = searchQuery.toLowerCase();
-          const matchDesc = tx.description.toLowerCase().includes(q);
-          const catName = categoryMap.get(tx.categoryId)?.name.toLowerCase() || '';
-          return matchDesc || catName.includes(q);
-        }
-
-        return true;
+        const txMonth = tx.paymentMethod === 'credit' && tx.invoiceMonth ? tx.invoiceMonth : tx.date.slice(0, 7);
+        return txMonth === currentMonthKey;
       })
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
-  }, [transactions, currentMonthKey, filterType, filterCategory, searchQuery, categoryMap]);
+  }, [transactions, currentMonthKey]);
+
+  // Lançamentos filtrados para a aba Lançamentos
+  const filteredTransactions = useMemo(() => {
+    return monthTransactions.filter((tx) => {
+      if (filterType !== 'all' && tx.type !== filterType) return false;
+      if (filterCategory !== 'all' && tx.categoryId !== filterCategory) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchDesc = tx.description.toLowerCase().includes(q);
+        const catName = categoryMap.get(tx.categoryId)?.name.toLowerCase() || '';
+        return matchDesc || catName.includes(q);
+      }
+      return true;
+    });
+  }, [monthTransactions, filterType, filterCategory, searchQuery, categoryMap]);
+
+  // Ocorrências filtradas para a aba Gastos Fixos
+  const filteredOccurrences = useMemo(() => {
+    return recurringSummary.occurrences.filter((occ) => {
+      if (recurringFilter === 'all') return true;
+      if (recurringFilter === 'pending') return occ.status === 'pending' || occ.status === 'overdue';
+      if (recurringFilter === 'paid') return occ.status === 'paid';
+      if (recurringFilter === 'paused') return occ.status === 'paused';
+      return true;
+    });
+  }, [recurringSummary.occurrences, recurringFilter]);
 
   // Form State para Transação
   const [txType, setTxType] = useState<FinanceTransactionType>('expense');
@@ -119,6 +208,17 @@ export function FinanceSection() {
   const [txPaymentMethod, setTxPaymentMethod] = useState<FinancePaymentMethod>('pix');
   const [txCardId, setTxCardId] = useState('');
   const [txInstallments, setTxInstallments] = useState(1);
+
+  // Form State para Gasto Fixo Recorrente
+  const [recName, setRecName] = useState('');
+  const [recAmountStr, setRecAmountStr] = useState('');
+  const [recCategoryId, setRecCategoryId] = useState('');
+  const [recFirstDueDate, setRecFirstDueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [recFrequency, setRecFrequency] = useState<FinanceRecurringFrequency>('monthly');
+  const [recPaymentMethod, setRecPaymentMethod] = useState<FinancePaymentMethod>('pix');
+  const [recCardId, setRecCardId] = useState('');
+  const [recNotes, setRecNotes] = useState('');
+  const [recStatus, setRecStatus] = useState<FinanceRecurringStatus>('active');
 
   // Form State para Cartão
   const [cardName, setCardName] = useState('');
@@ -158,7 +258,9 @@ export function FinanceSection() {
 
     const parsed = parseVoiceFinanceCommand(text, categories, cards);
     if (parsed.amountInCents === 0) {
-      setVoiceParsingError(`Não identificamos o valor em reais em: "${text}". Tente informar o valor (ex: "Gastei 50 reais no mercado").`);
+      setVoiceParsingError(
+        `Não identificamos o valor em reais em: "${text}". Tente informar o valor (ex: "Gastei 50 reais no mercado").`
+      );
       return;
     }
 
@@ -173,7 +275,7 @@ export function FinanceSection() {
     setTxCategoryId(parsed.categoryId);
     setTxDate(parsed.date);
     setTxPaymentMethod(parsed.paymentMethod);
-    setTxCardId(parsed.cardId || (cards[0]?.id || ''));
+    setTxCardId(parsed.cardId || cards[0]?.id || '');
     setTxInstallments(parsed.totalInstallments);
     setVoiceOriginText(text);
     setShowTransactionModal(true);
@@ -195,7 +297,6 @@ export function FinanceSection() {
     },
   });
 
-  // Sincroniza fala capturada em tempo real para o campo editável
   useEffect(() => {
     if (liveTranscript) {
       setVoiceInput(liveTranscript);
@@ -228,7 +329,7 @@ export function FinanceSection() {
     setTxDescription('');
     setTxAmountStr('');
     setTxDate(new Date().toISOString().slice(0, 10));
-    setTxPaymentMethod(type === 'income' ? 'pix' : 'pix');
+    setTxPaymentMethod('pix');
     setTxCardId(cards[0]?.id || '');
     setTxInstallments(1);
 
@@ -246,7 +347,7 @@ export function FinanceSection() {
     setTxDate(tx.date);
     setTxPaymentMethod(tx.paymentMethod);
     setTxCategoryId(tx.categoryId);
-    setTxCardId(tx.cardId || (cards[0]?.id || ''));
+    setTxCardId(tx.cardId || cards[0]?.id || '');
     setTxInstallments(1);
     setShowTransactionModal(true);
   };
@@ -259,8 +360,12 @@ export function FinanceSection() {
 
     const now = Date.now();
 
-    // Se estiver editando
     if (editingTransaction) {
+      const selectedCard = txPaymentMethod === 'credit' ? cards.find((c) => c.id === txCardId) : null;
+      const invoiceMonth = selectedCard
+        ? calculateCardSummary(selectedCard, [], txDate).currentInvoiceMonth
+        : undefined;
+
       await db.financeTransactions.update(editingTransaction.id, {
         type: txType,
         description: txDescription.trim(),
@@ -269,13 +374,13 @@ export function FinanceSection() {
         date: txDate,
         paymentMethod: txPaymentMethod,
         cardId: txPaymentMethod === 'credit' ? txCardId : undefined,
+        invoiceMonth,
         updatedAt: now,
       });
       setShowTransactionModal(false);
       return;
     }
 
-    // Se for compra parcelada no cartão
     if (txType === 'expense' && txPaymentMethod === 'credit' && txInstallments > 1 && txCardId) {
       const selectedCard = cards.find((c) => c.id === txCardId);
       const closingDay = selectedCard ? selectedCard.closingDay : 20;
@@ -297,9 +402,10 @@ export function FinanceSection() {
       return;
     }
 
-    // Lançamento normal à vista
     const selectedCard = txPaymentMethod === 'credit' ? cards.find((c) => c.id === txCardId) : null;
-    const invoiceMonth = selectedCard ? calculateCardSummary(selectedCard, [], txDate).currentInvoiceMonth : undefined;
+    const invoiceMonth = selectedCard
+      ? calculateCardSummary(selectedCard, [], txDate).currentInvoiceMonth
+      : undefined;
 
     const newTx: FinanceTransaction = {
       id: `tx_${now}_${Math.random().toString(36).substring(2, 7)}`,
@@ -330,6 +436,142 @@ export function FinanceSection() {
     }
     if (confirm('Deseja excluir este lançamento financeiro?')) {
       await db.financeTransactions.delete(id);
+    }
+  };
+
+  // ============================================================================
+  // HANDLERS DE GASTOS FIXOS (RECORRENTES)
+  // ============================================================================
+
+  const openNewRecurringModal = () => {
+    setEditingRecurring(null);
+    setRecName('');
+    setRecAmountStr('');
+    const defaultExpCat =
+      categories.find((c) => c.id === 'cat_assinaturas' || c.id === 'cat_moradia')?.id ||
+      categories.find((c) => c.type === 'expense')?.id ||
+      '';
+    setRecCategoryId(defaultExpCat);
+    setRecFirstDueDate(`${currentMonthKey}-${new Date().toISOString().slice(8, 10)}`);
+    setRecFrequency('monthly');
+    setRecPaymentMethod('pix');
+    setRecCardId(cards[0]?.id || '');
+    setRecNotes('');
+    setRecStatus('active');
+    setShowRecurringModal(true);
+  };
+
+  const openEditRecurringModal = (rec: FinanceRecurringExpense) => {
+    setEditingRecurring(rec);
+    setRecName(rec.name);
+    setRecAmountStr((rec.amountInCents / 100).toFixed(2).replace('.', ','));
+    setRecCategoryId(rec.categoryId);
+    setRecFirstDueDate(rec.firstDueDate);
+    setRecFrequency(rec.frequency);
+    setRecPaymentMethod(rec.paymentMethod);
+    setRecCardId(rec.cardId || cards[0]?.id || '');
+    setRecNotes(rec.notes || '');
+    setRecStatus(rec.status);
+    setShowRecurringModal(true);
+  };
+
+  const handleSaveRecurring = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amountInCents = parseBRLToCents(recAmountStr);
+    if (!recName.trim() || amountInCents <= 0 || !recCategoryId || !recFirstDueDate) return;
+
+    const now = Date.now();
+
+    if (editingRecurring) {
+      await db.financeRecurring.update(editingRecurring.id, {
+        name: recName.trim(),
+        amountInCents,
+        categoryId: recCategoryId,
+        firstDueDate: recFirstDueDate,
+        frequency: recFrequency,
+        paymentMethod: recPaymentMethod,
+        cardId: recPaymentMethod === 'credit' ? recCardId : undefined,
+        notes: recNotes.trim() || undefined,
+        status: recStatus,
+        updatedAt: now,
+      });
+      setShowRecurringModal(false);
+      return;
+    }
+
+    const newRec: FinanceRecurringExpense = {
+      id: `rec_${now}_${Math.random().toString(36).substring(2, 7)}`,
+      name: recName.trim(),
+      amountInCents,
+      categoryId: recCategoryId,
+      firstDueDate: recFirstDueDate,
+      frequency: recFrequency,
+      paymentMethod: recPaymentMethod,
+      cardId: recPaymentMethod === 'credit' ? recCardId : undefined,
+      notes: recNotes.trim() || undefined,
+      status: recStatus,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await db.financeRecurring.add(newRec);
+    setShowRecurringModal(false);
+  };
+
+  const handleToggleRecurringStatus = async (rec: FinanceRecurringExpense) => {
+    const nextStatus: FinanceRecurringStatus = rec.status === 'active' ? 'paused' : 'active';
+    await db.financeRecurring.update(rec.id, {
+      status: nextStatus,
+      updatedAt: Date.now(),
+    });
+  };
+
+  const handleDeleteRecurring = async (rec: FinanceRecurringExpense) => {
+    if (
+      confirm(
+        `Deseja excluir o gasto fixo "${rec.name}"?\n\nOs pagamentos já realizados em meses anteriores serão preservados no seu histórico de lançamentos.`
+      )
+    ) {
+      await db.financeRecurring.delete(rec.id);
+    }
+  };
+
+  const openPayOccurrenceModal = (occ: RecurringOccurrence) => {
+    setPayingOccurrence(occ);
+    setPayDateStr(new Date().toISOString().slice(0, 10));
+    setPayAmountStr((occ.expectedAmountInCents / 100).toFixed(2).replace('.', ','));
+  };
+
+  const handleConfirmOccurrencePayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payingOccurrence) return;
+
+    const paidAmountInCents = parseBRLToCents(payAmountStr);
+    if (paidAmountInCents <= 0) return;
+
+    const existingTx = transactions.find(
+      (t) =>
+        t.occurrenceKey === payingOccurrence.occurrenceKey ||
+        t.id === `tx_rec_${payingOccurrence.occurrenceKey}`
+    );
+
+    const tx = buildRecurringPaymentTransaction({
+      occurrence: payingOccurrence,
+      paidDate: payDateStr || new Date().toISOString().slice(0, 10),
+      paidAmountInCents,
+      cards,
+      existingTransaction: existingTx,
+    });
+
+    // put() garante idempotência absoluta (nunca duplica lançamento)
+    await db.financeTransactions.put(tx);
+    setPayingOccurrence(null);
+  };
+
+  const handleUndoOccurrencePayment = async (occ: RecurringOccurrence) => {
+    const txId = occ.paidTransactionId || `tx_rec_${occ.occurrenceKey}`;
+    if (confirm(`Deseja desfazer o pagamento de "${occ.name}" e voltar para Pendente?`)) {
+      await db.financeTransactions.delete(txId);
     }
   };
 
@@ -372,6 +614,13 @@ export function FinanceSection() {
     });
 
     setShowBudgetModal(false);
+  };
+
+  const openBudgetModal = () => {
+    setBudgetLimitStr(
+      budget?.limitInCents ? (budget.limitInCents / 100).toFixed(2).replace('.', ',') : ''
+    );
+    setShowBudgetModal(true);
   };
 
   // Salvar Nova Categoria Personalizada
@@ -434,51 +683,67 @@ export function FinanceSection() {
     alert(`${newTransactions.length} lançamentos importados com sucesso!`);
   };
 
+  // Maior valor para escala do gráfico de evolução mensal
+  const maxEvolutionValue = useMemo(() => {
+    let max = 0;
+    for (const p of monthlyEvolution.points) {
+      if (p.incomeInCents > max) max = p.incomeInCents;
+      if (p.expenseInCents > max) max = p.expenseInCents;
+    }
+    return max;
+  }, [monthlyEvolution.points]);
+
   return (
     <div className="space-y-6 pb-20">
-      {/* Header com Navegação de Mês e Ações Rápidas */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center font-bold">
-            <Wallet className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold text-slate-800 tracking-tight">Financeiro</h2>
-              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-800">
-                Offline & Seguro
-              </span>
+      {/* ============================================================ */}
+      {/* CABEÇALHO DO FINANCEIRO + SELETOR DE MÊS + AÇÕES RÁPIDAS */}
+      {/* ============================================================ */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center font-bold shrink-0">
+              <Wallet className="w-6 h-6" />
             </div>
-            <p className="text-xs text-slate-500">Controle prático de receitas, despesas e faturas</p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-bold text-slate-800 tracking-tight">Dashboard Financeiro</h2>
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-800">
+                  Offline & Seguro
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Visão geral completa de receitas, despesas, gastos fixos e faturas
+              </p>
+            </div>
+          </div>
+
+          {/* Seletor de Mês */}
+          <div className="flex items-center bg-slate-100/80 rounded-xl p-1 border border-slate-200/60 self-stretch sm:self-auto justify-between sm:justify-start">
+            <button
+              onClick={handlePrevMonth}
+              title="Mês anterior"
+              className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-white transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleCurrentMonth}
+              className="px-3 py-1 text-xs font-semibold text-slate-700 hover:text-emerald-700 min-w-36 text-center"
+            >
+              {formatMonthYear(currentMonthKey)}
+            </button>
+            <button
+              onClick={handleNextMonth}
+              title="Próximo mês"
+              className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-white transition-colors"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
-        {/* Seletor de Mês */}
-        <div className="flex items-center bg-slate-100/80 rounded-xl p-1 border border-slate-200/60">
-          <button
-            onClick={handlePrevMonth}
-            title="Mês anterior"
-            className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-white transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleCurrentMonth}
-            className="px-3 py-1 text-xs font-semibold text-slate-700 hover:text-emerald-700 min-w-36 text-center"
-          >
-            {formatMonthYear(currentMonthKey)}
-          </button>
-          <button
-            onClick={handleNextMonth}
-            title="Próximo mês"
-            className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-white transition-colors"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Botões de Ação */}
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        {/* Barra de Ações Rápidas */}
+        <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2">
           <button
             onClick={() => openNewTransactionModal('expense')}
             className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition-colors"
@@ -495,11 +760,29 @@ export function FinanceSection() {
           </button>
           <button
             onClick={handleStartVoice}
-            title={isSpeechSupported ? 'Registrar por comando de voz' : 'Reconhecimento de voz não suportado pelo navegador'}
-            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold shadow-xs transition-all active:scale-95"
+            title={
+              isSpeechSupported
+                ? 'Registrar lançamento por comando de voz'
+                : 'Reconhecimento de voz não suportado pelo navegador'
+            }
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold shadow-xs transition-all active:scale-95"
           >
             <Mic className="w-4 h-4 text-indigo-600" />
-            <span className="hidden sm:inline">Voz</span>
+            <span>Registrar por Voz</span>
+          </button>
+          <button
+            onClick={openNewRecurringModal}
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold shadow-xs transition-colors"
+          >
+            <Repeat className="w-4 h-4 text-amber-600" />
+            <span>Adicionar Gasto Fixo</span>
+          </button>
+          <button
+            onClick={() => setActiveSubTab('cards')}
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors"
+          >
+            <CreditCard className="w-4 h-4 text-slate-600" />
+            <span>Cartões e Faturas</span>
           </button>
           <input
             type="file"
@@ -511,28 +794,54 @@ export function FinanceSection() {
           <button
             onClick={() => fileInputRef.current?.click()}
             title="Importar extrato CSV"
-            className="p-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+            className="ml-auto p-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-1.5 text-xs font-medium"
           >
             <Upload className="w-4 h-4" />
+            <span className="hidden md:inline">Importar CSV</span>
           </button>
         </div>
       </div>
 
-      {/* Navegação entre as 3 Sub-abas */}
-      <div className="flex border-b border-slate-200">
+      {/* ============================================================ */}
+      {/* NAVEGAÇÃO ENTRE AS 4 SUB-ABAS DO FINANCEIRO */}
+      {/* ============================================================ */}
+      <div className="flex overflow-x-auto border-b border-slate-200 no-scrollbar">
         <button
           onClick={() => setActiveSubTab('summary')}
-          className={`pb-3 px-5 text-sm font-semibold transition-colors relative ${
+          className={`pb-3 px-4 sm:px-5 text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors relative ${
             activeSubTab === 'summary'
               ? 'text-emerald-600 border-b-2 border-emerald-600'
               : 'text-slate-500 hover:text-slate-800'
           }`}
         >
-          Resumo do Mês
+          Visão Geral
+        </button>
+        <button
+          onClick={() => setActiveSubTab('recurring')}
+          className={`pb-3 px-4 sm:px-5 text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors relative flex items-center gap-2 ${
+            activeSubTab === 'recurring'
+              ? 'text-emerald-600 border-b-2 border-emerald-600'
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          Gastos Fixos
+          <span
+            className={`text-xs px-2 py-0.5 rounded-full ${
+              recurringSummary.overdueCount > 0
+                ? 'bg-rose-100 text-rose-700 font-bold'
+                : recurringSummary.pendingCount > 0
+                ? 'bg-amber-100 text-amber-800 font-bold'
+                : 'bg-slate-100 text-slate-600'
+            }`}
+          >
+            {recurringSummary.pendingCount > 0
+              ? `${recurringSummary.pendingCount} pend.`
+              : recurringSummary.occurrences.length}
+          </span>
         </button>
         <button
           onClick={() => setActiveSubTab('transactions')}
-          className={`pb-3 px-5 text-sm font-semibold transition-colors relative flex items-center gap-2 ${
+          className={`pb-3 px-4 sm:px-5 text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors relative flex items-center gap-2 ${
             activeSubTab === 'transactions'
               ? 'text-emerald-600 border-b-2 border-emerald-600'
               : 'text-slate-500 hover:text-slate-800'
@@ -545,7 +854,7 @@ export function FinanceSection() {
         </button>
         <button
           onClick={() => setActiveSubTab('cards')}
-          className={`pb-3 px-5 text-sm font-semibold transition-colors relative flex items-center gap-2 ${
+          className={`pb-3 px-4 sm:px-5 text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors relative flex items-center gap-2 ${
             activeSubTab === 'cards'
               ? 'text-emerald-600 border-b-2 border-emerald-600'
               : 'text-slate-500 hover:text-slate-800'
@@ -559,170 +868,584 @@ export function FinanceSection() {
       </div>
 
       {/* ============================================================ */}
-      {/* 1. ABA RESUMO DO MÊS */}
+      {/* 1. ABA VISÃO GERAL (DASHBOARD COMPLETO) */}
       {/* ============================================================ */}
       {activeSubTab === 'summary' && (
         <div className="space-y-6">
-          {/* Grid de KPIs Financeiros */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Total Recebido */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+          {/* 1.1. Grid de Indicadores Principais (KPIs) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+            {/* Saldo Atual & Projetado */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Total Recebido
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Saldo Atual
                 </span>
-                <span className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
-                  <ArrowDownRight className="w-4 h-4" />
-                </span>
-              </div>
-              <div className="text-2xl font-bold text-emerald-600">
-                {formatCentsToBRL(summary.totalIncomeInCents)}
-              </div>
-              <span className="text-[11px] text-slate-400 mt-1 block">Receitas confirmadas</span>
-            </div>
-
-            {/* Total Gasto */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Total Gasto
-                </span>
-                <span className="p-2 rounded-xl bg-rose-50 text-rose-600">
-                  <ArrowUpRight className="w-4 h-4" />
-                </span>
-              </div>
-              <div className="text-2xl font-bold text-rose-600">
-                {formatCentsToBRL(summary.totalExpenseInCents)}
-              </div>
-              <span className="text-[11px] text-slate-400 mt-1 block">À vista + Faturas do mês</span>
-            </div>
-
-            {/* Saldo Estimado */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Saldo Estimado
-                </span>
-                <span className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+                <span className="p-1.5 rounded-xl bg-indigo-50 text-indigo-600">
                   <Wallet className="w-4 h-4" />
                 </span>
               </div>
-              <div
-                className={`text-2xl font-bold ${
-                  summary.estimatedBalanceInCents >= 0 ? 'text-slate-800' : 'text-rose-600'
-                }`}
-              >
-                {formatCentsToBRL(summary.estimatedBalanceInCents)}
+              <div>
+                <div
+                  className={`text-xl font-bold ${
+                    summary.estimatedBalanceInCents >= 0 ? 'text-slate-900' : 'text-rose-600'
+                  }`}
+                >
+                  {formatCentsToBRL(summary.estimatedBalanceInCents)}
+                </div>
+                <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                  <span className="text-slate-500 font-medium">Projetado:</span>
+                  <span
+                    className={`font-bold ${
+                      projectedBalanceInCents >= 0 ? 'text-indigo-600' : 'text-rose-600'
+                    }`}
+                  >
+                    {formatCentsToBRL(projectedBalanceInCents)}
+                  </span>
+                </div>
               </div>
-              <span className="text-[11px] text-slate-400 mt-1 block">Receitas - Despesas</span>
             </div>
 
-            {/* Limite Mensal */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+            {/* Total de Receitas */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Limite Mensal
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Total de Receitas
                 </span>
-                <button
-                  onClick={() => {
-                    setBudgetLimitStr(
-                      budget?.limitInCents ? (budget.limitInCents / 100).toFixed(2).replace('.', ',') : ''
-                    );
-                    setShowBudgetModal(true);
-                  }}
-                  className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold underline"
+                <span className="p-1.5 rounded-xl bg-emerald-50 text-emerald-600">
+                  <ArrowDownRight className="w-4 h-4" />
+                </span>
+              </div>
+              <div>
+                <div className="text-xl font-bold text-emerald-600">
+                  {formatCentsToBRL(summary.totalIncomeInCents)}
+                </div>
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  Recebidas em {formatMonthYear(currentMonthKey)}
+                </span>
+              </div>
+            </div>
+
+            {/* Total de Despesas */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Total de Despesas
+                </span>
+                <span className="p-1.5 rounded-xl bg-rose-50 text-rose-600">
+                  <ArrowUpRight className="w-4 h-4" />
+                </span>
+              </div>
+              <div>
+                <div className="text-xl font-bold text-rose-600">
+                  {formatCentsToBRL(summary.totalExpenseInCents)}
+                </div>
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  Gastos efetivados + faturas
+                </span>
+              </div>
+            </div>
+
+            {/* Gastos Fixos (Total Previsto) */}
+            <div
+              onClick={() => setActiveSubTab('recurring')}
+              className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between cursor-pointer hover:border-amber-300 transition-colors"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Gastos Fixos
+                </span>
+                <span className="p-1.5 rounded-xl bg-amber-50 text-amber-600">
+                  <Repeat className="w-4 h-4" />
+                </span>
+              </div>
+              <div>
+                <div className="text-xl font-bold text-slate-800">
+                  {formatCentsToBRL(recurringSummary.totalExpectedInCents)}
+                </div>
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  Pago: {formatCentsToBRL(recurringSummary.totalPaidInCents)}
+                </span>
+              </div>
+            </div>
+
+            {/* Contas Pendentes */}
+            <div
+              onClick={() => {
+                setRecurringFilter('pending');
+                setActiveSubTab('recurring');
+              }}
+              className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between cursor-pointer hover:border-rose-300 transition-colors"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Contas Pendentes
+                </span>
+                <span
+                  className={`p-1.5 rounded-xl ${
+                    recurringSummary.overdueCount > 0
+                      ? 'bg-rose-50 text-rose-600'
+                      : 'bg-amber-50 text-amber-600'
+                  }`}
                 >
-                  {budget?.limitInCents ? 'Editar' : 'Definir'}
-                </button>
+                  <CalendarClock className="w-4 h-4" />
+                </span>
               </div>
-              <div className="text-2xl font-bold text-slate-800">
-                {budget?.limitInCents ? formatCentsToBRL(budget.limitInCents) : 'Não definido'}
+              <div>
+                <div
+                  className={`text-xl font-bold ${
+                    recurringSummary.overdueCount > 0
+                      ? 'text-rose-600'
+                      : recurringSummary.totalPendingInCents > 0
+                      ? 'text-amber-600'
+                      : 'text-emerald-600'
+                  }`}
+                >
+                  {formatCentsToBRL(recurringSummary.totalPendingInCents)}
+                </div>
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  {recurringSummary.pendingCount === 0
+                    ? 'Tudo em dia neste mês'
+                    : recurringSummary.overdueCount > 0
+                    ? `${recurringSummary.overdueCount} atrasada(s) • ${recurringSummary.pendingCount} total`
+                    : `${recurringSummary.pendingCount} conta(s) a pagar`}
+                </span>
               </div>
-              <span className="text-[11px] text-slate-400 mt-1 block">
-                {budget?.limitInCents
-                  ? summary.isOverLimit
-                    ? 'Estourou o orçamento planejado'
-                    : `Resta: ${formatCentsToBRL(summary.remainingInCents)}`
-                  : 'Clique para definir um teto de gastos'}
-              </span>
+            </div>
+
+            {/* Faturas de Cartão */}
+            <div
+              onClick={() => setActiveSubTab('cards')}
+              className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between cursor-pointer hover:border-indigo-300 transition-colors"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Faturas de Cartão
+                </span>
+                <span className="p-1.5 rounded-xl bg-indigo-50 text-indigo-600">
+                  <CreditCard className="w-4 h-4" />
+                </span>
+              </div>
+              <div>
+                <div className="text-xl font-bold text-slate-800">
+                  {formatCentsToBRL(totalOpenInvoicesInCents)}
+                </div>
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  {cards.length === 0
+                    ? 'Nenhum cartão ativo'
+                    : `${cards.length} cartão(ões) em aberto`}
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* Barra de Progresso do Limite Mensal (se configurado) */}
-          {summary.limitInCents > 0 && (
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-1.5 font-semibold text-slate-700">
-                  <Percent className="w-4 h-4 text-emerald-600" />
-                  Progresso do Limite Mensal
+          {/* 1.2. Painel de Orçamento Mensal (Limite Mensal) */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <Percent className="w-5 h-5" />
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-800">
-                    {summary.percentageUsed.toFixed(1)}% utilizado
-                  </span>
-                  {summary.isOverLimit && (
-                    <span className="flex items-center gap-1 text-xs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">
-                      <AlertTriangle className="w-3.5 h-3.5" /> Limite Ultrapassado
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">
+                    Orçamento Mensal ({formatMonthYear(currentMonthKey)})
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Acompanhe seu limite de gastos estabelecido para este mês
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={openBudgetModal}
+                className="self-start sm:self-auto px-3.5 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold transition-colors"
+              >
+                {summary.limitInCents > 0 ? 'Alterar Limite Mensal' : 'Configurar Limite Mensal'}
+              </button>
+            </div>
+
+            {summary.limitInCents <= 0 ? (
+              <div className="p-4 rounded-xl bg-slate-50 border border-dashed border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="text-xs text-slate-600">
+                  Você ainda não definiu um limite de gastos para{' '}
+                  <strong>{formatMonthYear(currentMonthKey)}</strong>. Defina uma meta para receber
+                  alertas quando estiver próximo do teto.
+                </div>
+                <button
+                  onClick={openBudgetModal}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold whitespace-nowrap"
+                >
+                  Definir Limite Agora
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                    <span className="text-[11px] text-slate-500 block">Limite Definido</span>
+                    <span className="text-sm sm:text-base font-bold text-slate-800">
+                      {formatCentsToBRL(summary.limitInCents)}
                     </span>
-                  )}
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                    <span className="text-[11px] text-slate-500 block">Total Gasto</span>
+                    <span className="text-sm sm:text-base font-bold text-rose-600">
+                      {formatCentsToBRL(summary.totalExpenseInCents)}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                    <span className="text-[11px] text-slate-500 block">
+                      {summary.isOverLimit ? 'Excedente' : 'Disponível para Gastar'}
+                    </span>
+                    <span
+                      className={`text-sm sm:text-base font-bold ${
+                        summary.isOverLimit ? 'text-rose-600' : 'text-emerald-600'
+                      }`}
+                    >
+                      {summary.isOverLimit
+                        ? formatCentsToBRL(summary.totalExpenseInCents - summary.limitInCents)
+                        : formatCentsToBRL(summary.remainingInCents)}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                    <span className="text-[11px] text-slate-500 block">Percentual Utilizado</span>
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`text-sm sm:text-base font-bold ${
+                          summary.isOverLimit
+                            ? 'text-rose-600'
+                            : summary.percentageUsed >= 85
+                            ? 'text-amber-600'
+                            : 'text-slate-800'
+                        }`}
+                      >
+                        {summary.percentageUsed.toFixed(1)}%
+                      </span>
+                      {summary.isOverLimit ? (
+                        <span className="text-[10px] font-bold bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded-full">
+                          Acima
+                        </span>
+                      ) : summary.percentageUsed >= 85 ? (
+                        <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full">
+                          Atenção
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-500 ${
+                        summary.isOverLimit
+                          ? 'bg-rose-500'
+                          : summary.percentageUsed >= 85
+                          ? 'bg-amber-500'
+                          : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.min(100, summary.percentageUsed)}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between items-center text-[11px] text-slate-500">
+                    <span>
+                      {summary.isOverLimit
+                        ? `Você ultrapassou o orçamento mensal em ${formatCentsToBRL(
+                            summary.totalExpenseInCents - summary.limitInCents
+                          )}.`
+                        : summary.percentageUsed >= 85
+                        ? `Atenção: você já consumiu ${summary.percentageUsed.toFixed(
+                            0
+                          )}% do limite deste mês.`
+                        : `Dentro do planejado • Resta ${formatCentsToBRL(summary.remainingInCents)}`}
+                    </span>
+                    <span>Meta: {formatCentsToBRL(summary.limitInCents)}</span>
+                  </div>
                 </div>
               </div>
+            )}
+          </div>
 
-              {/* Barra */}
-              <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-500 ${
-                    summary.isOverLimit
-                      ? 'bg-rose-500'
-                      : summary.percentageUsed > 85
-                      ? 'bg-amber-500'
-                      : 'bg-emerald-500'
-                  }`}
-                  style={{ width: `${Math.min(100, summary.percentageUsed)}%` }}
-                />
+          {/* 1.3. Resumo de Gastos Fixos & Próximos Vencimentos */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Card Resumo de Gastos Fixos no Dashboard */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between space-y-4">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Repeat className="w-4 h-4 text-amber-600" />
+                    <h3 className="text-sm font-bold text-slate-800">Resumo de Gastos Fixos</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={openNewRecurringModal}
+                      className="text-xs font-semibold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg transition-colors"
+                    >
+                      + Adicionar
+                    </button>
+                    <button
+                      onClick={() => setActiveSubTab('recurring')}
+                      className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
+                    >
+                      Ver todos <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {recurringSummary.occurrences.length === 0 ? (
+                  <div className="py-8 text-center space-y-2 bg-slate-50/60 rounded-xl border border-dashed border-slate-200 p-4">
+                    <Repeat className="w-6 h-6 text-slate-300 mx-auto" />
+                    <p className="text-xs font-medium text-slate-600">
+                      Nenhum gasto fixo cadastrado para este mês.
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      Cadastre contas recorrentes como Aluguel, Internet, Energia, Academia ou
+                      Assinaturas para acompanhar seus vencimentos.
+                    </p>
+                    <button
+                      onClick={openNewRecurringModal}
+                      className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Cadastrar Primeiro Gasto Fixo
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                          Previsto no Mês
+                        </span>
+                        <span className="text-sm font-bold text-slate-800 mt-0.5 block">
+                          {formatCentsToBRL(recurringSummary.totalExpectedInCents)}
+                        </span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-100">
+                        <span className="text-[10px] uppercase font-bold text-emerald-700 block">
+                          Já Pago ({recurringSummary.paidCount})
+                        </span>
+                        <span className="text-sm font-bold text-emerald-700 mt-0.5 block">
+                          {formatCentsToBRL(recurringSummary.totalPaidInCents)}
+                        </span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-100">
+                        <span className="text-[10px] uppercase font-bold text-amber-800 block">
+                          Pendente ({recurringSummary.pendingCount})
+                        </span>
+                        <span className="text-sm font-bold text-amber-800 mt-0.5 block">
+                          {formatCentsToBRL(recurringSummary.totalPendingInCents)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Destaque do Próximo Vencimento */}
+                    {recurringSummary.nextDueOccurrence ? (
+                      <div
+                        className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 ${
+                          recurringSummary.nextDueOccurrence.status === 'overdue'
+                            ? 'bg-rose-50/70 border-rose-200'
+                            : 'bg-amber-50/50 border-amber-200/80'
+                        }`}
+                      >
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                                recurringSummary.nextDueOccurrence.status === 'overdue'
+                                  ? 'bg-rose-100 text-rose-700'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {recurringSummary.nextDueOccurrence.status === 'overdue'
+                                ? 'Conta em Atraso'
+                                : 'Próximo Vencimento'}
+                            </span>
+                            <span className="text-xs font-semibold text-slate-600">
+                              Vence em {formatDateBR(recurringSummary.nextDueOccurrence.dueDate)}
+                            </span>
+                          </div>
+                          <div className="text-sm font-bold text-slate-900">
+                            {recurringSummary.nextDueOccurrence.name} —{' '}
+                            {formatCentsToBRL(
+                              recurringSummary.nextDueOccurrence.expectedAmountInCents
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => openPayOccurrenceModal(recurringSummary.nextDueOccurrence!)}
+                          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold whitespace-nowrap shadow-xs"
+                        >
+                          Dar Baixa
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        Todos os gastos fixos ativos deste mês já foram pagos!
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
 
-              <div className="flex justify-between text-[11px] text-slate-400">
-                <span>R$ 0,00</span>
-                <span>Meta: {formatCentsToBRL(summary.limitInCents)}</span>
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+                <span>
+                  {recurringSummary.paidCount} paga(s) • {recurringSummary.pendingCount} pendente(s)
+                </span>
+                <button
+                  onClick={() => setActiveSubTab('recurring')}
+                  className="text-emerald-600 font-semibold hover:underline"
+                >
+                  Gerenciar Gastos Fixos
+                </button>
               </div>
             </div>
-          )}
 
-          {/* Gastos por Categoria e Cartões do Mês */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Breakdown de Categorias */}
+            {/* Card Próximos Vencimentos (Gastos Fixos + Faturas de Cartão) */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-800">Maiores Gastos por Categoria</h3>
-                <span className="text-xs text-slate-400">{summary.categoryExpenses.length} categorias</span>
+                <div className="flex items-center gap-2">
+                  <CalendarClock className="w-4 h-4 text-indigo-600" />
+                  <h3 className="text-sm font-bold text-slate-800">Próximos Vencimentos do Mês</h3>
+                </div>
+                <span className="text-xs text-slate-400">
+                  {upcomingCommitments.length} compromisso(s)
+                </span>
+              </div>
+
+              {upcomingCommitments.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 text-xs space-y-1">
+                  <Clock className="w-6 h-6 mx-auto text-slate-300" />
+                  <p>Nenhuma conta fixa ou fatura prevista para este mês.</p>
+                </div>
+              ) : (
+                <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
+                  {upcomingCommitments.slice(0, 6).map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-3 rounded-xl border border-slate-100 bg-slate-50/60 flex items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                            item.kind === 'card_invoice'
+                              ? 'bg-indigo-100 text-indigo-600'
+                              : item.status === 'paid'
+                              ? 'bg-emerald-100 text-emerald-600'
+                              : item.status === 'overdue'
+                              ? 'bg-rose-100 text-rose-600'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}
+                        >
+                          {item.kind === 'card_invoice' ? (
+                            <CreditCard className="w-4 h-4" />
+                          ) : (
+                            <Repeat className="w-4 h-4" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-slate-800 truncate">
+                            {item.title}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                            <span>Vence {formatDateBR(item.dueDate)}</span>
+                            <span>•</span>
+                            <span
+                              className={`font-semibold ${
+                                item.status === 'paid'
+                                  ? 'text-emerald-600'
+                                  : item.status === 'overdue'
+                                  ? 'text-rose-600'
+                                  : 'text-amber-700'
+                              }`}
+                            >
+                              {item.status === 'paid'
+                                ? 'Pago'
+                                : item.status === 'overdue'
+                                ? 'Atrasado'
+                                : 'Pendente'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        <span className="text-xs sm:text-sm font-bold text-slate-900">
+                          {formatCentsToBRL(item.amountInCents)}
+                        </span>
+                        {item.kind === 'recurring' &&
+                          item.recurringOccurrence &&
+                          item.status !== 'paid' && (
+                            <button
+                              onClick={() => openPayOccurrenceModal(item.recurringOccurrence!)}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold"
+                            >
+                              Pagar
+                            </button>
+                          )}
+                        {item.kind === 'card_invoice' && (
+                          <button
+                            onClick={() => setActiveSubTab('cards')}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[11px] font-semibold"
+                          >
+                            Fatura
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 1.4. Gráficos e Análise de Despesas (Gastos por Categoria, Evolução Mensal, Fixos vs Variáveis) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Gráfico 1: Gastos por Categoria */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <PieChart className="w-4 h-4 text-emerald-600" />
+                  <h3 className="text-sm font-bold text-slate-800">Gastos por Categoria</h3>
+                </div>
+                <span className="text-xs text-slate-400">
+                  {summary.categoryExpenses.length} categoria(s)
+                </span>
               </div>
 
               {summary.categoryExpenses.length === 0 ? (
-                <div className="py-8 text-center text-slate-400 text-xs">
-                  Nenhum gasto registrado neste mês ainda.
+                <div className="py-12 text-center text-slate-400 text-xs space-y-1">
+                  <PieChart className="w-7 h-7 mx-auto text-slate-200" />
+                  <p className="font-medium text-slate-500">Sem despesas neste mês</p>
+                  <p className="text-[11px]">
+                    Registre gastos para visualizar a distribuição por categoria.
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {summary.categoryExpenses.slice(0, 5).map((item) => {
+                  {summary.categoryExpenses.slice(0, 6).map((item) => {
                     const cat = categoryMap.get(item.categoryId);
-                    const pct = summary.totalExpenseInCents > 0
-                      ? ((item.totalCents / summary.totalExpenseInCents) * 100).toFixed(0)
-                      : 0;
+                    const pct =
+                      summary.totalExpenseInCents > 0
+                        ? ((item.totalCents / summary.totalExpenseInCents) * 100).toFixed(1)
+                        : '0.0';
 
                     return (
                       <div key={item.categoryId} className="space-y-1">
                         <div className="flex justify-between text-xs">
-                          <span className="font-medium text-slate-700">{cat?.name || 'Outros'}</span>
+                          <span className="font-medium text-slate-700">
+                            {cat?.name || 'Outros'}
+                          </span>
                           <span className="font-semibold text-slate-800">
                             {formatCentsToBRL(item.totalCents)}{' '}
-                            <span className="text-[10px] text-slate-400 font-normal">({pct}%)</span>
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              ({pct}%)
+                            </span>
                           </span>
                         </div>
-                        <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                           <div
-                            className="bg-emerald-500 h-full rounded-full"
-                            style={{ width: `${pct}%` }}
+                            className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min(100, Number(pct))}%` }}
                           />
                         </div>
                       </div>
@@ -732,48 +1455,438 @@ export function FinanceSection() {
               )}
             </div>
 
-            {/* Faturas de Cartão do Mês */}
+            {/* Gráfico 2: Evolução Mensal (Receitas vs Despesas) */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-800">Faturas de Cartão em Aberto</h3>
-                <button
-                  onClick={() => setActiveSubTab('cards')}
-                  className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold"
-                >
-                  Ver todos
-                </button>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-indigo-600" />
+                  <h3 className="text-sm font-bold text-slate-800">Evolução Mensal</h3>
+                </div>
+                <div className="flex bg-slate-100 rounded-lg p-0.5 text-[11px] font-semibold">
+                  {([3, 6, 12] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setEvolutionMonths(m)}
+                      className={`px-2 py-0.5 rounded-md transition-colors ${
+                        evolutionMonths === m
+                          ? 'bg-white text-slate-900 shadow-2xs'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      {m}M
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {cards.length === 0 ? (
-                <div className="py-8 text-center text-slate-400 text-xs">
-                  Nenhum cartão cadastrado. Clique na aba Cartões para adicionar.
+              {!monthlyEvolution.hasAnyData ? (
+                <div className="py-12 text-center text-slate-400 text-xs space-y-1">
+                  <BarChart3 className="w-7 h-7 mx-auto text-slate-200" />
+                  <p className="font-medium text-slate-500">Sem histórico no período</p>
+                  <p className="text-[11px]">
+                    Adicione receitas ou despesas para comparar a evolução mês a mês.
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {cardsSummary.map(({ card, currentInvoiceTotalInCents, currentInvoiceMonth }) => (
-                    <div
-                      key={card.id}
-                      className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
-                          <CreditCard className="w-4 h-4" />
+                  {/* Legenda */}
+                  <div className="flex items-center gap-4 text-[11px] text-slate-500">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-xs bg-emerald-500 inline-block" />
+                      Receitas
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-xs bg-rose-500 inline-block" />
+                      Despesas
+                    </span>
+                  </div>
+
+                  {/* Barras Verticais Responsivas */}
+                  <div className="h-40 flex items-end justify-between gap-2 pt-4 pb-1 border-b border-slate-100">
+                    {monthlyEvolution.points.map((pt) => {
+                      const incHeight =
+                        maxEvolutionValue > 0
+                          ? Math.max(4, Math.round((pt.incomeInCents / maxEvolutionValue) * 100))
+                          : 4;
+                      const expHeight =
+                        maxEvolutionValue > 0
+                          ? Math.max(4, Math.round((pt.expenseInCents / maxEvolutionValue) * 100))
+                          : 4;
+                      const isCurrent = pt.monthKey === currentMonthKey;
+
+                      return (
+                        <div
+                          key={pt.monthKey}
+                          onClick={() => setCurrentMonthKey(pt.monthKey)}
+                          title={`${pt.fullLabel}\nReceitas: ${formatCentsToBRL(
+                            pt.incomeInCents
+                          )}\nDespesas: ${formatCentsToBRL(pt.expenseInCents)}`}
+                          className="flex-1 flex flex-col items-center gap-1.5 cursor-pointer group h-full justify-end"
+                        >
+                          <div className="w-full flex items-end justify-center gap-1 h-28">
+                            <div
+                              className="w-2.5 sm:w-3 bg-emerald-500 group-hover:bg-emerald-600 rounded-t transition-all"
+                              style={{
+                                height: pt.incomeInCents > 0 ? `${incHeight}%` : '2px',
+                                opacity: pt.incomeInCents > 0 ? 1 : 0.25,
+                              }}
+                            />
+                            <div
+                              className="w-2.5 sm:w-3 bg-rose-500 group-hover:bg-rose-600 rounded-t transition-all"
+                              style={{
+                                height: pt.expenseInCents > 0 ? `${expHeight}%` : '2px',
+                                opacity: pt.expenseInCents > 0 ? 1 : 0.25,
+                              }}
+                            />
+                          </div>
+                          <span
+                            className={`text-[10px] truncate ${
+                              isCurrent ? 'font-bold text-emerald-700' : 'text-slate-400'
+                            }`}
+                          >
+                            {pt.shortLabel}
+                          </span>
                         </div>
-                        <div>
-                          <div className="text-xs font-bold text-slate-800">{card.name}</div>
-                          <div className="text-[11px] text-slate-400">
-                            Fatura {formatMonthYear(currentInvoiceMonth)} • Vence dia {card.dueDay}
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Gráfico 3: Gastos Fixos vs Variáveis */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Repeat className="w-4 h-4 text-amber-600" />
+                  <h3 className="text-sm font-bold text-slate-800">Fixos vs Variáveis</h3>
+                </div>
+                <span className="text-xs text-slate-400">{formatMonthYear(currentMonthKey)}</span>
+              </div>
+
+              {fixedVsVariable.totalAnalysedInCents === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs space-y-1">
+                  <Repeat className="w-7 h-7 mx-auto text-slate-200" />
+                  <p className="font-medium text-slate-500">Sem dados para proporção</p>
+                  <p className="text-[11px]">
+                    Registre gastos fixos ou despesas variáveis para analisar a divisão do seu
+                    orçamento.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Barra Proporcional Dupla */}
+                  <div className="space-y-1.5">
+                    <div className="w-full h-4 rounded-full bg-slate-100 overflow-hidden flex">
+                      {fixedVsVariable.fixedPercentage > 0 && (
+                        <div
+                          className="bg-amber-500 h-full transition-all duration-500"
+                          style={{ width: `${fixedVsVariable.fixedPercentage}%` }}
+                          title={`Gastos Fixos: ${fixedVsVariable.fixedPercentage}%`}
+                        />
+                      )}
+                      {fixedVsVariable.variablePercentage > 0 && (
+                        <div
+                          className="bg-indigo-500 h-full transition-all duration-500"
+                          style={{ width: `${fixedVsVariable.variablePercentage}%` }}
+                          title={`Gastos Variáveis: ${fixedVsVariable.variablePercentage}%`}
+                        />
+                      )}
+                    </div>
+                    <div className="flex justify-between text-[11px] font-semibold">
+                      <span className="text-amber-700">
+                        Fixos: {fixedVsVariable.fixedPercentage}%
+                      </span>
+                      <span className="text-indigo-700">
+                        Variáveis: {fixedVsVariable.variablePercentage}%
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Detalhamento em Reais */}
+                  <div className="space-y-2.5">
+                    <div className="p-3 rounded-xl bg-amber-50/50 border border-amber-100 flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-bold text-slate-800">
+                          Gastos Fixos e Recorrentes
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Pagos: {formatCentsToBRL(fixedVsVariable.fixedRealizedInCents)} •
+                          Pendentes: {formatCentsToBRL(fixedVsVariable.fixedPendingInCents)}
+                        </div>
+                      </div>
+                      <span className="text-sm font-bold text-amber-800">
+                        {formatCentsToBRL(fixedVsVariable.fixedTotalInCents)}
+                      </span>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-indigo-50/50 border border-indigo-100 flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-bold text-slate-800">
+                          Gastos Variáveis do Mês
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Compras avulsas e parcelas não recorrentes
+                        </div>
+                      </div>
+                      <span className="text-sm font-bold text-indigo-800">
+                        {formatCentsToBRL(fixedVsVariable.variableRealizedInCents)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 1.5. Movimentações Recentes + Comparação com o Mês Anterior */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Movimentações Recentes (ocupa 2 colunas no desktop) */}
+            <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Movimentações Recentes</h3>
+                  <p className="text-xs text-slate-400">
+                    Últimos lançamentos registrados em {formatMonthYear(currentMonthKey)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setActiveSubTab('transactions')}
+                  className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
+                >
+                  Ver histórico completo <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {monthTransactions.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 space-y-2">
+                  <DollarSign className="w-7 h-7 mx-auto text-slate-300" />
+                  <p className="text-xs font-medium text-slate-500">
+                    Nenhuma movimentação registrada neste mês.
+                  </p>
+                  <div className="flex justify-center gap-2 pt-1">
+                    <button
+                      onClick={() => openNewTransactionModal('expense')}
+                      className="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-700 text-xs font-semibold hover:bg-rose-100"
+                    >
+                      + Registrar Despesa
+                    </button>
+                    <button
+                      onClick={() => openNewTransactionModal('income')}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100"
+                    >
+                      + Registrar Receita
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {monthTransactions.slice(0, 6).map((tx) => {
+                    const cat = categoryMap.get(tx.categoryId);
+                    const isExpense = tx.type === 'expense';
+                    const isCredit = tx.paymentMethod === 'credit';
+                    const card = isCredit && tx.cardId ? cards.find((c) => c.id === tx.cardId) : null;
+
+                    return (
+                      <div
+                        key={tx.id}
+                        className="py-3 flex items-center justify-between gap-3 hover:bg-slate-50/60 px-2 rounded-xl transition-colors group"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                              isExpense
+                                ? 'bg-rose-50 text-rose-600'
+                                : 'bg-emerald-50 text-emerald-600'
+                            }`}
+                          >
+                            {isExpense ? (
+                              <ArrowUpRight className="w-4 h-4" />
+                            ) : (
+                              <ArrowDownRight className="w-4 h-4" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs sm:text-sm font-bold text-slate-800 truncate">
+                                {tx.description}
+                              </span>
+                              {(tx.recurringExpenseId || tx.occurrenceKey) && (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 font-semibold shrink-0">
+                                  Fixo
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+                              <span className="font-medium text-slate-600">
+                                {cat?.name || 'Outros'}
+                              </span>
+                              <span>•</span>
+                              <span>{formatDateBR(tx.date)}</span>
+                              <span>•</span>
+                              <span>
+                                {isCredit
+                                  ? card?.name || 'Cartão de Crédito'
+                                  : PAYMENT_METHOD_LABELS[tx.paymentMethod]}
+                              </span>
+                              {tx.totalInstallments && tx.totalInstallments > 1 && (
+                                <span className="bg-amber-50 text-amber-700 px-1.5 py-0.2 rounded font-medium">
+                                  {tx.installmentNumber}/{tx.totalInstallments}x
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span
+                            className={`text-xs sm:text-sm font-bold ${
+                              isExpense ? 'text-rose-600' : 'text-emerald-600'
+                            }`}
+                          >
+                            {isExpense ? '-' : '+'} {formatCentsToBRL(tx.amountInCents)}
+                          </span>
+                          <div className="flex items-center gap-0.5 opacity-80 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => openEditTransactionModal(tx)}
+                              title="Editar lançamento"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() =>
+                                handleDeleteTransaction(tx.id, tx.installmentPlanId)
+                              }
+                              title="Excluir lançamento"
+                              className="p-1.5 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div className="text-sm font-bold text-slate-900">
-                          {formatCentsToBRL(currentInvoiceTotalInCents)}
-                        </div>
-                        <span className="text-[10px] text-slate-400">Previsão</span>
-                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Comparação com o Mês Anterior */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">Comparativo Mensal</h3>
+                <p className="text-xs text-slate-400">
+                  Em relação a {formatMonthYear(prevMonthComparison.previousMonthKey)}
+                </p>
+              </div>
+
+              {!prevMonthComparison.hasPreviousData ? (
+                <div className="py-10 text-center text-slate-400 text-xs space-y-1 bg-slate-50/60 rounded-xl border border-dashed border-slate-200 p-4">
+                  <TrendingUp className="w-6 h-6 mx-auto text-slate-300" />
+                  <p className="font-medium text-slate-600">Sem dados no mês anterior</p>
+                  <p className="text-[11px]">
+                    Não há lançamentos em {formatMonthYear(prevMonthComparison.previousMonthKey)}{' '}
+                    para calcular variações percentuais.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Variação de Despesas */}
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-500 font-medium">Despesas vs Mês Anterior</span>
+                      <span
+                        className={`inline-flex items-center gap-1 font-bold ${
+                          prevMonthComparison.expenseDiffInCents > 0
+                            ? 'text-rose-600'
+                            : prevMonthComparison.expenseDiffInCents < 0
+                            ? 'text-emerald-600'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        {prevMonthComparison.expenseDiffInCents > 0 ? (
+                          <TrendingUp className="w-3.5 h-3.5" />
+                        ) : prevMonthComparison.expenseDiffInCents < 0 ? (
+                          <TrendingDown className="w-3.5 h-3.5" />
+                        ) : null}
+                        {prevMonthComparison.expenseChangePercent !== null
+                          ? `${prevMonthComparison.expenseChangePercent > 0 ? '+' : ''}${prevMonthComparison.expenseChangePercent.toFixed(
+                              1
+                            )}%`
+                          : '—'}
+                      </span>
                     </div>
-                  ))}
+                    <div className="text-xs text-slate-700">
+                      {prevMonthComparison.expenseDiffInCents > 0
+                        ? `Aumento de ${formatCentsToBRL(prevMonthComparison.expenseDiffInCents)}`
+                        : prevMonthComparison.expenseDiffInCents < 0
+                        ? `Economia de ${formatCentsToBRL(
+                            Math.abs(prevMonthComparison.expenseDiffInCents)
+                          )}`
+                        : 'Mesmo patamar de gastos'}
+                    </div>
+                  </div>
+
+                  {/* Variação de Receitas */}
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-500 font-medium">Receitas vs Mês Anterior</span>
+                      <span
+                        className={`inline-flex items-center gap-1 font-bold ${
+                          prevMonthComparison.incomeDiffInCents > 0
+                            ? 'text-emerald-600'
+                            : prevMonthComparison.incomeDiffInCents < 0
+                            ? 'text-rose-600'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        {prevMonthComparison.incomeChangePercent !== null
+                          ? `${prevMonthComparison.incomeChangePercent > 0 ? '+' : ''}${prevMonthComparison.incomeChangePercent.toFixed(
+                              1
+                            )}%`
+                          : '—'}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-700">
+                      {prevMonthComparison.incomeDiffInCents >= 0
+                        ? `+${formatCentsToBRL(prevMonthComparison.incomeDiffInCents)} em receitas`
+                        : `-${formatCentsToBRL(
+                            Math.abs(prevMonthComparison.incomeDiffInCents)
+                          )} em receitas`}
+                    </div>
+                  </div>
+
+                  {/* Maiores variações por categoria */}
+                  {prevMonthComparison.categoryVariations.length > 0 && (
+                    <div className="pt-2 space-y-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+                        Destaques por Categoria
+                      </span>
+                      {prevMonthComparison.categoryVariations.slice(0, 3).map((v) => {
+                        const cat = categoryMap.get(v.categoryId);
+                        const increased = v.diffCents > 0;
+                        return (
+                          <div
+                            key={v.categoryId}
+                            className="flex items-center justify-between text-xs"
+                          >
+                            <span className="text-slate-700 font-medium truncate">
+                              {cat?.name || 'Outros'}
+                            </span>
+                            <span
+                              className={`font-semibold ${
+                                increased ? 'text-rose-600' : 'text-emerald-600'
+                              }`}
+                            >
+                              {increased ? '+' : '-'}
+                              {formatCentsToBRL(Math.abs(v.diffCents))}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -782,14 +1895,370 @@ export function FinanceSection() {
       )}
 
       {/* ============================================================ */}
-      {/* 2. ABA LANÇAMENTOS */}
+      {/* 2. ABA GASTOS FIXOS (CONTROLE DE RECORRÊNCIAS) */}
+      {/* ============================================================ */}
+      {activeSubTab === 'recurring' && (
+        <div className="space-y-6">
+          {/* Resumo Superior de Gastos Fixos do Mês */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
+                Previsto em {formatMonthYear(currentMonthKey)}
+              </span>
+              <div className="text-2xl font-bold text-slate-800 mt-1">
+                {formatCentsToBRL(recurringSummary.totalExpectedInCents)}
+              </div>
+              <span className="text-[11px] text-slate-400">
+                {recurringSummary.occurrences.filter((o) => o.status !== 'paused').length}{' '}
+                vencimento(s) ativo(s)
+              </span>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+              <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider block">
+                Total Pago no Mês
+              </span>
+              <div className="text-2xl font-bold text-emerald-600 mt-1">
+                {formatCentsToBRL(recurringSummary.totalPaidInCents)}
+              </div>
+              <span className="text-[11px] text-slate-400">
+                {recurringSummary.paidCount} conta(s) quitada(s)
+              </span>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+              <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider block">
+                Falta Pagar (Pendente)
+              </span>
+              <div className="text-2xl font-bold text-amber-600 mt-1">
+                {formatCentsToBRL(recurringSummary.totalPendingInCents)}
+              </div>
+              <span className="text-[11px] text-slate-400">
+                {recurringSummary.pendingCount} conta(s) em aberto
+              </span>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+              <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider block">
+                Contas em Atraso
+              </span>
+              <div className="text-2xl font-bold text-rose-600 mt-1">
+                {recurringSummary.overdueCount}
+              </div>
+              <span className="text-[11px] text-slate-400">
+                {recurringSummary.overdueCount > 0
+                  ? 'Atenção aos vencimentos ultrapassados'
+                  : 'Nenhuma conta fixa atrasada'}
+              </span>
+            </div>
+          </div>
+
+          {/* Barra de Filtros e Botão Novo Gasto Fixo */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex bg-slate-100 rounded-xl p-1 text-xs font-medium">
+              {(
+                [
+                  { id: 'all', label: 'Todos do Mês' },
+                  { id: 'pending', label: 'Pendentes / Atrasados' },
+                  { id: 'paid', label: 'Pagos' },
+                  { id: 'paused', label: 'Pausados' },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setRecurringFilter(tab.id)}
+                  className={`px-3 py-1.5 rounded-lg transition-colors ${
+                    recurringFilter === tab.id
+                      ? 'bg-white shadow-xs text-slate-900 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={openNewRecurringModal}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Novo Gasto Fixo
+            </button>
+          </div>
+
+          {/* Lista de Ocorrências do Mês Selecionado */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-800">
+                Vencimentos de {formatMonthYear(currentMonthKey)}
+              </h3>
+              <span className="text-xs text-slate-400">
+                {filteredOccurrences.length} registro(s)
+              </span>
+            </div>
+
+            {filteredOccurrences.length === 0 ? (
+              <div className="py-14 text-center text-slate-400 space-y-2 p-4">
+                <Repeat className="w-8 h-8 mx-auto text-slate-300" />
+                <p className="text-sm font-medium text-slate-600">
+                  Nenhum gasto fixo encontrado para o filtro selecionado neste mês.
+                </p>
+                <p className="text-xs text-slate-400">
+                  Cadastre suas despesas recorrentes (Aluguel, Condomínio, Luz, Água, Internet,
+                  Academia, Streaming) para controlar os pagamentos mensais sem duplicidade.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {filteredOccurrences.map((occ) => {
+                  const cat = categoryMap.get(occ.categoryId);
+                  const recTemplate = recurringExpenses.find((r) => r.id === occ.recurringId);
+                  const card =
+                    occ.paymentMethod === 'credit' && occ.cardId
+                      ? cards.find((c) => c.id === occ.cardId)
+                      : null;
+
+                  return (
+                    <div
+                      key={occ.occurrenceKey}
+                      className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/60 transition-colors"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                            occ.status === 'paid'
+                              ? 'bg-emerald-50 text-emerald-600'
+                              : occ.status === 'overdue'
+                              ? 'bg-rose-50 text-rose-600'
+                              : occ.status === 'paused'
+                              ? 'bg-slate-100 text-slate-400'
+                              : 'bg-amber-50 text-amber-600'
+                          }`}
+                        >
+                          <Repeat className="w-5 h-5" />
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-bold text-slate-800">{occ.name}</span>
+                            <span
+                              className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                                occ.status === 'paid'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : occ.status === 'overdue'
+                                  ? 'bg-rose-100 text-rose-700'
+                                  : occ.status === 'paused'
+                                  ? 'bg-slate-200 text-slate-600'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {occ.status === 'paid'
+                                ? 'Pago'
+                                : occ.status === 'overdue'
+                                ? 'Atrasado'
+                                : occ.status === 'paused'
+                                ? 'Pausado'
+                                : 'Pendente'}
+                            </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
+                              {FREQUENCY_LABELS[occ.frequency]}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                            <span className="font-medium text-slate-700">
+                              {cat?.name || 'Outros'}
+                            </span>
+                            <span>•</span>
+                            <span>Vencimento: {formatDateBR(occ.dueDate)}</span>
+                            <span>•</span>
+                            <span>
+                              {occ.paymentMethod === 'credit'
+                                ? `Cartão ${card?.name || 'Crédito'}`
+                                : PAYMENT_METHOD_LABELS[occ.paymentMethod]}
+                            </span>
+                            {occ.status === 'paid' && occ.paidDate && (
+                              <>
+                                <span>•</span>
+                                <span className="text-emerald-700 font-medium">
+                                  Pago em {formatDateBR(occ.paidDate)}
+                                </span>
+                              </>
+                            )}
+                          </div>
+
+                          {occ.notes && (
+                            <p className="text-[11px] text-slate-400 italic">"{occ.notes}"</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                        <div className="text-left sm:text-right">
+                          <div className="text-sm sm:text-base font-bold text-slate-900">
+                            {formatCentsToBRL(
+                              occ.status === 'paid'
+                                ? occ.paidAmountInCents ?? occ.expectedAmountInCents
+                                : occ.expectedAmountInCents
+                            )}
+                          </div>
+                          {occ.status === 'paid' &&
+                            occ.paidAmountInCents &&
+                            occ.paidAmountInCents !== occ.expectedAmountInCents && (
+                              <span className="text-[10px] text-slate-400 block">
+                                Previsto: {formatCentsToBRL(occ.expectedAmountInCents)}
+                              </span>
+                            )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          {(occ.status === 'pending' || occ.status === 'overdue') && (
+                            <button
+                              onClick={() => openPayOccurrenceModal(occ)}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-colors flex items-center gap-1"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Marcar Pago
+                            </button>
+                          )}
+
+                          {occ.status === 'paid' && (
+                            <button
+                              onClick={() => handleUndoOccurrencePayment(occ)}
+                              title="Desfazer pagamento e voltar para pendente"
+                              className="px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 text-xs font-medium flex items-center gap-1"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              Desfazer
+                            </button>
+                          )}
+
+                          {recTemplate && (
+                            <>
+                              <button
+                                onClick={() => openEditRecurringModal(recTemplate)}
+                                title="Editar gasto fixo"
+                                className="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleToggleRecurringStatus(recTemplate)}
+                                title={
+                                  recTemplate.status === 'active'
+                                    ? 'Pausar recorrência'
+                                    : 'Reativar recorrência'
+                                }
+                                className="p-2 rounded-xl text-amber-600 hover:text-amber-700 hover:bg-amber-50 transition-colors"
+                              >
+                                {recTemplate.status === 'active' ? (
+                                  <PauseCircle className="w-4 h-4" />
+                                ) : (
+                                  <PlayCircle className="w-4 h-4" />
+                                )}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteRecurring(recTemplate)}
+                                title="Excluir gasto fixo"
+                                className="p-2 rounded-xl text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Lista Mestre de Todos os Cadastros Recorrentes (para gerenciar trimestrais/anuais/futuros) */}
+          {recurringExpenses.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Todos os Gastos Fixos Cadastrados ({recurringExpenses.length})
+                </h3>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {recurringExpenses.map((rec) => {
+                  const cat = categoryMap.get(rec.categoryId);
+                  return (
+                    <div
+                      key={rec.id}
+                      className="p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/40 flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-800 truncate">
+                            {rec.name}
+                          </span>
+                          <span
+                            className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${
+                              rec.status === 'active'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {rec.status === 'active' ? 'Ativo' : 'Pausado'}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          {formatCentsToBRL(rec.amountInCents)} • {FREQUENCY_LABELS[rec.frequency]}{' '}
+                          • {cat?.name || 'Outros'}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          1º vencimento: {formatDateBR(rec.firstDueDate)}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => openEditRecurringModal(rec)}
+                          className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200/60"
+                          title="Editar"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleToggleRecurringStatus(rec)}
+                          className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-100/60"
+                          title={rec.status === 'active' ? 'Pausar' : 'Reativar'}
+                        >
+                          {rec.status === 'active' ? (
+                            <PauseCircle className="w-3.5 h-3.5" />
+                          ) : (
+                            <PlayCircle className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteRecurring(rec)}
+                          className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-100/60"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 3. ABA LANÇAMENTOS */}
       {/* ============================================================ */}
       {activeSubTab === 'transactions' && (
         <div className="space-y-4">
           {/* Barra de Filtros e Busca */}
           <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              {/* Tipo */}
               <div className="flex bg-slate-100 rounded-xl p-1 text-xs">
                 <button
                   onClick={() => setFilterType('all')}
@@ -810,14 +2279,15 @@ export function FinanceSection() {
                 <button
                   onClick={() => setFilterType('income')}
                   className={`px-3 py-1 rounded-lg font-medium transition-colors ${
-                    filterType === 'income' ? 'bg-white shadow-xs text-emerald-600' : 'text-slate-600'
+                    filterType === 'income'
+                      ? 'bg-white shadow-xs text-emerald-600'
+                      : 'text-slate-600'
                   }`}
                 >
                   Receitas
                 </button>
               </div>
 
-              {/* Categoria */}
               <select
                 value={filterCategory}
                 onChange={(e) => setFilterCategory(e.target.value)}
@@ -832,7 +2302,6 @@ export function FinanceSection() {
               </select>
             </div>
 
-            {/* Campo de Busca */}
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <input
                 type="text"
@@ -856,8 +2325,12 @@ export function FinanceSection() {
             {filteredTransactions.length === 0 ? (
               <div className="py-16 text-center text-slate-400 space-y-2">
                 <DollarSign className="w-8 h-8 mx-auto text-slate-300" />
-                <p className="text-sm font-medium">Nenhum lançamento encontrado para os filtros atuais.</p>
-                <p className="text-xs text-slate-400">Clique em "+ Nova Despesa" ou "+ Nova Receita" para registrar.</p>
+                <p className="text-sm font-medium">
+                  Nenhum lançamento encontrado para os filtros atuais.
+                </p>
+                <p className="text-xs text-slate-400">
+                  Clique em "+ Nova Despesa" ou "+ Nova Receita" para registrar.
+                </p>
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
@@ -865,7 +2338,8 @@ export function FinanceSection() {
                   const cat = categoryMap.get(tx.categoryId);
                   const isExpense = tx.type === 'expense';
                   const isCredit = tx.paymentMethod === 'credit';
-                  const card = isCredit && tx.cardId ? cards.find((c) => c.id === tx.cardId) : null;
+                  const card =
+                    isCredit && tx.cardId ? cards.find((c) => c.id === tx.cardId) : null;
 
                   return (
                     <div
@@ -888,13 +2362,24 @@ export function FinanceSection() {
                         </div>
 
                         <div>
-                          <div className="text-xs sm:text-sm font-bold text-slate-800">
-                            {tx.description}
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs sm:text-sm font-bold text-slate-800">
+                              {tx.description}
+                            </span>
+                            {(tx.recurringExpenseId || tx.occurrenceKey) && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 font-semibold">
+                                Gasto Fixo
+                              </span>
+                            )}
                           </div>
-                          <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
-                            <span className="font-medium text-slate-600">{cat?.name || 'Sem categoria'}</span>
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+                            <span className="font-medium text-slate-600">
+                              {cat?.name || 'Sem categoria'}
+                            </span>
                             <span>•</span>
-                            <span>{tx.date.split('-').reverse().join('/')}</span>
+                            <span>{formatDateBR(tx.date)}</span>
+                            <span>•</span>
+                            <span>{PAYMENT_METHOD_LABELS[tx.paymentMethod]}</span>
                             {isCredit && (
                               <>
                                 <span>•</span>
@@ -927,10 +2412,12 @@ export function FinanceSection() {
                             title="Editar lançamento"
                             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
                           >
-                            <HelpCircle className="w-3.5 h-3.5" />
+                            <Edit3 className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => handleDeleteTransaction(tx.id, tx.installmentPlanId)}
+                            onClick={() =>
+                              handleDeleteTransaction(tx.id, tx.installmentPlanId)
+                            }
                             title="Excluir lançamento"
                             className="p-1.5 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
                           >
@@ -948,7 +2435,7 @@ export function FinanceSection() {
       )}
 
       {/* ============================================================ */}
-      {/* 3. ABA CARTÕES & FATURAS */}
+      {/* 4. ABA CARTÕES & FATURAS */}
       {/* ============================================================ */}
       {activeSubTab === 'cards' && (
         <div className="space-y-6">
@@ -967,66 +2454,347 @@ export function FinanceSection() {
             <div className="bg-white rounded-2xl border border-slate-200/80 p-12 text-center text-slate-400 space-y-2">
               <CreditCard className="w-8 h-8 mx-auto text-slate-300" />
               <p className="text-sm font-medium">Nenhum cartão de crédito cadastrado.</p>
-              <p className="text-xs text-slate-400">Cadastre seus cartões para simular compras parceladas e vencimentos.</p>
+              <p className="text-xs text-slate-400">
+                Cadastre seus cartões para controlar faturas mensais, compras parceladas e limites.
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {cardsSummary.map(({ card, currentInvoiceTotalInCents, nextInvoiceTotalInCents, futureInstallmentsTotalInCents, estimatedAvailableLimitInCents, currentInvoiceMonth }) => (
-                <div
-                  key={card.id}
-                  className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col justify-between"
-                >
-                  {/* Cartão Visual no topo */}
-                  <div className={`p-5 bg-gradient-to-r ${card.color || 'from-indigo-600 to-indigo-800'} text-white`}>
-                    <div className="flex items-center justify-between mb-4">
-                      <CreditCard className="w-6 h-6 text-white/80" />
-                      <span className="text-[10px] uppercase font-bold tracking-widest text-white/70">
-                        Cartão de Crédito
-                      </span>
-                    </div>
-                    <div className="text-lg font-bold tracking-tight">{card.name}</div>
-                    <div className="mt-3 flex items-center justify-between text-xs text-white/90">
-                      <span>Fecha dia {card.closingDay}</span>
-                      <span>Vence dia {card.dueDay}</span>
-                    </div>
-                  </div>
-
-                  {/* Informações de Fatura */}
-                  <div className="p-5 space-y-3">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Fatura Atual ({formatMonthYear(currentInvoiceMonth)}):</span>
-                      <span className="font-bold text-slate-900 text-sm">
-                        {formatCentsToBRL(currentInvoiceTotalInCents)}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Próxima Fatura:</span>
-                      <span className="font-semibold text-slate-700">
-                        {formatCentsToBRL(nextInvoiceTotalInCents)}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Parcelas Futuras Totais:</span>
-                      <span className="font-semibold text-slate-700">
-                        {formatCentsToBRL(futureInstallmentsTotalInCents)}
-                      </span>
-                    </div>
-
-                    {card.limitInCents && (
-                      <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-xs">
-                        <span className="text-slate-500">Limite Disponível Estimado:</span>
-                        <span className="font-bold text-emerald-600">
-                          {formatCentsToBRL(estimatedAvailableLimitInCents || 0)}
+              {cardsSummary.map(
+                ({
+                  card,
+                  currentInvoiceTotalInCents,
+                  nextInvoiceTotalInCents,
+                  futureInstallmentsTotalInCents,
+                  estimatedAvailableLimitInCents,
+                  currentInvoiceMonth,
+                }) => (
+                  <div
+                    key={card.id}
+                    className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col justify-between"
+                  >
+                    <div
+                      className={`p-5 bg-gradient-to-r ${
+                        card.color || 'from-indigo-600 to-indigo-800'
+                      } text-white`}
+                    >
+                      <div className="flex items-center justify-between mb-4">
+                        <CreditCard className="w-6 h-6 text-white/80" />
+                        <span className="text-[10px] uppercase font-bold tracking-widest text-white/70">
+                          Cartão de Crédito
                         </span>
                       </div>
-                    )}
+                      <div className="text-lg font-bold tracking-tight">{card.name}</div>
+                      <div className="mt-3 flex items-center justify-between text-xs text-white/90">
+                        <span>Fecha dia {card.closingDay}</span>
+                        <span>Vence dia {card.dueDay}</span>
+                      </div>
+                    </div>
+
+                    <div className="p-5 space-y-3">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-slate-500">
+                          Fatura ({formatMonthYear(currentInvoiceMonth)}):
+                        </span>
+                        <span className="font-bold text-slate-900 text-sm">
+                          {formatCentsToBRL(currentInvoiceTotalInCents)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-slate-500">Próxima Fatura:</span>
+                        <span className="font-semibold text-slate-700">
+                          {formatCentsToBRL(nextInvoiceTotalInCents)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-slate-500">Parcelas Futuras Totais:</span>
+                        <span className="font-semibold text-slate-700">
+                          {formatCentsToBRL(futureInstallmentsTotalInCents)}
+                        </span>
+                      </div>
+
+                      {card.limitInCents && (
+                        <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-xs">
+                          <span className="text-slate-500">Limite Disponível Estimado:</span>
+                          <span className="font-bold text-emerald-600">
+                            {formatCentsToBRL(estimatedAvailableLimitInCents || 0)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL: CADASTRAR / EDITAR GASTO FIXO */}
+      {/* ============================================================ */}
+      {showRecurringModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-900">
+                {editingRecurring ? 'Editar Gasto Fixo' : 'Novo Gasto Fixo Recorrente'}
+              </h3>
+              <button
+                onClick={() => setShowRecurringModal(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveRecurring} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nome do Gasto Fixo *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Aluguel, Internet, Energia, Academia, Netflix..."
+                  value={recName}
+                  onChange={(e) => setRecName(e.target.value)}
+                  className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Valor Previsto (R$) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="0,00"
+                    value={recAmountStr}
+                    onChange={(e) => setRecAmountStr(e.target.value)}
+                    className="w-full text-sm font-bold px-3 py-2 border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Frequência *
+                  </label>
+                  <select
+                    value={recFrequency}
+                    onChange={(e) =>
+                      setRecFrequency(e.target.value as FinanceRecurringFrequency)
+                    }
+                    className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
+                  >
+                    <option value="monthly">Mensal</option>
+                    <option value="weekly">Semanal</option>
+                    <option value="quarterly">Trimestral</option>
+                    <option value="yearly">Anual</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Categoria *
+                  </label>
+                  <select
+                    value={recCategoryId}
+                    onChange={(e) => setRecCategoryId(e.target.value)}
+                    className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
+                  >
+                    {categories
+                      .filter((c) => c.type === 'expense')
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    1º Vencimento *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={recFirstDueDate}
+                    onChange={(e) => setRecFirstDueDate(e.target.value)}
+                    className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Forma de Pagamento
+                  </label>
+                  <select
+                    value={recPaymentMethod}
+                    onChange={(e) =>
+                      setRecPaymentMethod(e.target.value as FinancePaymentMethod)
+                    }
+                    className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
+                  >
+                    <option value="pix">Pix / Boleto</option>
+                    <option value="debit">Débito Automático</option>
+                    <option value="credit">Cartão de Crédito</option>
+                    <option value="money">Dinheiro</option>
+                    <option value="other">Outro</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Status da Recorrência
+                  </label>
+                  <select
+                    value={recStatus}
+                    onChange={(e) =>
+                      setRecStatus(e.target.value as FinanceRecurringStatus)
+                    }
+                    className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
+                  >
+                    <option value="active">Ativo</option>
+                    <option value="paused">Pausado</option>
+                  </select>
+                </div>
+              </div>
+
+              {recPaymentMethod === 'credit' && (
+                <div>
+                  <label className="block text-xs font-semibold text-indigo-900 mb-1">
+                    Cartão Associado
+                  </label>
+                  <select
+                    value={recCardId}
+                    onChange={(e) => setRecCardId(e.target.value)}
+                    className="w-full text-xs px-3 py-2 border border-indigo-200 rounded-xl outline-none bg-indigo-50/40"
+                  >
+                    {cards.length === 0 ? (
+                      <option value="">Nenhum cartão cadastrado</option>
+                    ) : (
+                      cards.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} (Fecha dia {c.closingDay})
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Observações (Opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Débito automático dia 10, plano família..."
+                  value={recNotes}
+                  onChange={(e) => setRecNotes(e.target.value)}
+                  className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRecurringModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                >
+                  {editingRecurring ? 'Salvar Alterações' : 'Cadastrar Gasto Fixo'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL: CONFIRMAR PAGAMENTO DE GASTO FIXO (DAR BAIXA) */}
+      {/* ============================================================ */}
+      {payingOccurrence && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-900">Confirmar Pagamento</h3>
+              <button
+                onClick={() => setPayingOccurrence(null)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-0.5">
+              <div className="text-sm font-bold text-slate-800">{payingOccurrence.name}</div>
+              <div className="text-xs text-slate-500">
+                Vencimento: {formatDateBR(payingOccurrence.dueDate)} • Valor previsto:{' '}
+                {formatCentsToBRL(payingOccurrence.expectedAmountInCents)}
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmOccurrencePayment} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Valor Efetivamente Pago (R$) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={payAmountStr}
+                  onChange={(e) => setPayAmountStr(e.target.value)}
+                  className="w-full text-base font-bold px-3 py-2 border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Data do Pagamento *
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={payDateStr}
+                  onChange={(e) => setPayDateStr(e.target.value)}
+                  className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPayingOccurrence(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-xs"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  Confirmar Baixa
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -1038,7 +2806,9 @@ export function FinanceSection() {
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900">
-                {editingTransaction ? 'Editar Lançamento' : `Nova ${txType === 'expense' ? 'Despesa' : 'Receita'}`}
+                {editingTransaction
+                  ? 'Editar Lançamento'
+                  : `Nova ${txType === 'expense' ? 'Despesa' : 'Receita'}`}
               </h3>
               <button
                 onClick={() => setShowTransactionModal(false)}
@@ -1049,7 +2819,6 @@ export function FinanceSection() {
             </div>
 
             <form onSubmit={handleSaveTransaction} className="space-y-4">
-              {/* Alerta de Lançamento por Comando de Voz */}
               {voiceOriginText && (
                 <div className="p-3 bg-indigo-50/90 border border-indigo-200/80 rounded-xl space-y-1">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-900">
@@ -1063,7 +2832,6 @@ export function FinanceSection() {
                 </div>
               )}
 
-              {/* Seletor Tipo */}
               {!editingTransaction && (
                 <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
                   <button
@@ -1074,7 +2842,9 @@ export function FinanceSection() {
                       setTxCategoryId(firstExp);
                     }}
                     className={`py-2 rounded-lg transition-colors ${
-                      txType === 'expense' ? 'bg-white shadow-xs text-rose-600' : 'text-slate-600'
+                      txType === 'expense'
+                        ? 'bg-white shadow-xs text-rose-600'
+                        : 'text-slate-600'
                     }`}
                   >
                     Despesa
@@ -1087,7 +2857,9 @@ export function FinanceSection() {
                       setTxCategoryId(firstInc);
                     }}
                     className={`py-2 rounded-lg transition-colors ${
-                      txType === 'income' ? 'bg-white shadow-xs text-emerald-600' : 'text-slate-600'
+                      txType === 'income'
+                        ? 'bg-white shadow-xs text-emerald-600'
+                        : 'text-slate-600'
                     }`}
                   >
                     Receita
@@ -1095,7 +2867,6 @@ export function FinanceSection() {
                 </div>
               )}
 
-              {/* Valor */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Valor (R$) *
@@ -1110,7 +2881,6 @@ export function FinanceSection() {
                 />
               </div>
 
-              {/* Descrição */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Descrição *
@@ -1125,7 +2895,6 @@ export function FinanceSection() {
                 />
               </div>
 
-              {/* Categoria e Data */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -1160,14 +2929,15 @@ export function FinanceSection() {
                 </div>
               </div>
 
-              {/* Forma de Pagamento */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Forma de Pagamento
                 </label>
                 <select
                   value={txPaymentMethod}
-                  onChange={(e) => setTxPaymentMethod(e.target.value as FinancePaymentMethod)}
+                  onChange={(e) =>
+                    setTxPaymentMethod(e.target.value as FinancePaymentMethod)
+                  }
                   className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
                 >
                   <option value="pix">Pix</option>
@@ -1178,7 +2948,6 @@ export function FinanceSection() {
                 </select>
               </div>
 
-              {/* Se for Cartão de Crédito */}
               {txType === 'expense' && txPaymentMethod === 'credit' && (
                 <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-3">
                   <div>
@@ -1222,7 +2991,6 @@ export function FinanceSection() {
                 </div>
               )}
 
-              {/* Botões */}
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
@@ -1251,14 +3019,19 @@ export function FinanceSection() {
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900">Novo Cartão de Crédito</h3>
-              <button onClick={() => setShowCardModal(false)} className="text-slate-400 hover:text-slate-600">
+              <button
+                onClick={() => setShowCardModal(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSaveCard} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Nome do Cartão *</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nome do Cartão *
+                </label>
                 <input
                   type="text"
                   required
@@ -1270,7 +3043,9 @@ export function FinanceSection() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Limite Total (Opcional)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Limite Total (Opcional)
+                </label>
                 <input
                   type="text"
                   placeholder="R$ 5.000,00"
@@ -1282,7 +3057,9 @@ export function FinanceSection() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Dia do Fechamento *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Dia do Fechamento *
+                  </label>
                   <input
                     type="number"
                     min={1}
@@ -1294,7 +3071,9 @@ export function FinanceSection() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Dia do Vencimento *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Dia do Vencimento *
+                  </label>
                   <input
                     type="number"
                     min={1}
@@ -1308,7 +3087,9 @@ export function FinanceSection() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Estilo Visual do Cartão</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Estilo Visual do Cartão
+                </label>
                 <div className="flex gap-2">
                   {[
                     { label: 'Índigo', bg: 'from-indigo-600 to-indigo-800' },
@@ -1322,7 +3103,9 @@ export function FinanceSection() {
                       type="button"
                       onClick={() => setCardColor(c.bg)}
                       className={`h-7 flex-1 rounded-lg bg-gradient-to-r ${c.bg} border-2 transition-all ${
-                        cardColor === c.bg ? 'border-amber-400 scale-105 shadow-xs' : 'border-transparent opacity-80'
+                        cardColor === c.bg
+                          ? 'border-amber-400 scale-105 shadow-xs'
+                          : 'border-transparent opacity-80'
                       }`}
                       title={c.label}
                     />
@@ -1357,15 +3140,22 @@ export function FinanceSection() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900">Limite Mensal ({formatMonthYear(currentMonthKey)})</h3>
-              <button onClick={() => setShowBudgetModal(false)} className="text-slate-400 hover:text-slate-600">
+              <h3 className="text-base font-bold text-slate-900">
+                Limite Mensal ({formatMonthYear(currentMonthKey)})
+              </h3>
+              <button
+                onClick={() => setShowBudgetModal(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSaveBudget} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Teto de Gastos (R$)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Teto de Gastos (R$)
+                </label>
                 <input
                   type="text"
                   required
@@ -1374,6 +3164,10 @@ export function FinanceSection() {
                   onChange={(e) => setBudgetLimitStr(e.target.value)}
                   className="w-full text-base font-bold px-3 py-2 border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
                 />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  A alteração vale apenas para {formatMonthYear(currentMonthKey)}, preservando o
+                  histórico dos outros meses.
+                </p>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -1404,7 +3198,10 @@ export function FinanceSection() {
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900">Nova Categoria</h3>
-              <button onClick={() => setShowNewCategoryModal(false)} className="text-slate-400 hover:text-slate-600">
+              <button
+                onClick={() => setShowNewCategoryModal(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1417,7 +3214,9 @@ export function FinanceSection() {
                     type="button"
                     onClick={() => setNewCatType('expense')}
                     className={`py-1.5 rounded-lg ${
-                      newCatType === 'expense' ? 'bg-white shadow-xs text-rose-600' : 'text-slate-600'
+                      newCatType === 'expense'
+                        ? 'bg-white shadow-xs text-rose-600'
+                        : 'text-slate-600'
                     }`}
                   >
                     Despesa
@@ -1426,7 +3225,9 @@ export function FinanceSection() {
                     type="button"
                     onClick={() => setNewCatType('income')}
                     className={`py-1.5 rounded-lg ${
-                      newCatType === 'income' ? 'bg-white shadow-xs text-emerald-600' : 'text-slate-600'
+                      newCatType === 'income'
+                        ? 'bg-white shadow-xs text-emerald-600'
+                        : 'text-slate-600'
                     }`}
                   >
                     Receita
@@ -1435,7 +3236,9 @@ export function FinanceSection() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Nome da Categoria *</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nome da Categoria *
+                </label>
                 <input
                   type="text"
                   required
@@ -1473,19 +3276,27 @@ export function FinanceSection() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900">Revisar Importação de Extrato</h3>
-              <button onClick={() => setShowCSVModal(false)} className="text-slate-400 hover:text-slate-600">
+              <h3 className="text-base font-bold text-slate-900">
+                Revisar Importação de Extrato
+              </h3>
+              <button
+                onClick={() => setShowCSVModal(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <p className="text-xs text-slate-500">
-              Foram identificados <strong>{csvPreviewRows.length}</strong> registros válidos no arquivo CSV.
+              Foram identificados <strong>{csvPreviewRows.length}</strong> registros válidos no
+              arquivo CSV.
             </p>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Categoria Padrão</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Categoria Padrão
+                </label>
                 <select
                   value={csvDefaultCategory}
                   onChange={(e) => setCsvDefaultCategory(e.target.value)}
@@ -1500,10 +3311,14 @@ export function FinanceSection() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Tratar como</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Tratar como
+                </label>
                 <select
                   value={csvDefaultType}
-                  onChange={(e) => setCsvDefaultType(e.target.value as FinanceTransactionType)}
+                  onChange={(e) =>
+                    setCsvDefaultType(e.target.value as FinanceTransactionType)
+                  }
                   className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl"
                 >
                   <option value="expense">Despesas</option>
@@ -1512,7 +3327,6 @@ export function FinanceSection() {
               </div>
             </div>
 
-            {/* Tabela de Preview */}
             <div className="max-h-56 overflow-y-auto border border-slate-100 rounded-xl text-xs">
               <table className="w-full text-left">
                 <thead className="bg-slate-50 text-slate-500 text-[11px] uppercase">
@@ -1525,7 +3339,9 @@ export function FinanceSection() {
                 <tbody className="divide-y divide-slate-100">
                   {csvPreviewRows.slice(0, 15).map((row, i) => (
                     <tr key={i} className="hover:bg-slate-50/50">
-                      <td className="p-2.5 font-medium text-slate-600">{row.date}</td>
+                      <td className="p-2.5 font-medium text-slate-600">
+                        {formatDateBR(row.date)}
+                      </td>
                       <td className="p-2.5 text-slate-800">{row.description}</td>
                       <td className="p-2.5 text-right font-bold text-slate-900">
                         {formatCentsToBRL(row.amountInCents)}
@@ -1584,7 +3400,6 @@ export function FinanceSection() {
               </button>
             </div>
 
-            {/* Botão de Microfone Principal */}
             <button
               type="button"
               onClick={handleToggleVoice}
@@ -1610,7 +3425,11 @@ export function FinanceSection() {
               </div>
 
               <div className="text-center space-y-1">
-                <span className={`text-sm font-bold block ${isListening ? 'text-rose-600' : 'text-slate-800'}`}>
+                <span
+                  className={`text-sm font-bold block ${
+                    isListening ? 'text-rose-600' : 'text-slate-800'
+                  }`}
+                >
                   {isListening ? 'Ouvindo... Fale agora!' : 'Toque aqui para falar'}
                 </span>
                 {liveTranscript && isListening ? (
@@ -1646,7 +3465,6 @@ export function FinanceSection() {
               />
             </div>
 
-            {/* Alerta de Erro de Reconhecimento ou Validação */}
             {(speechError || voiceParsingError) && (
               <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-start gap-2 text-left">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -1654,7 +3472,6 @@ export function FinanceSection() {
               </div>
             )}
 
-            {/* Exemplos Rápidos */}
             {!voiceInput && (
               <div className="text-left bg-slate-50 p-2.5 rounded-xl border border-slate-100">
                 <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
@@ -1683,7 +3500,6 @@ export function FinanceSection() {
               </div>
             )}
 
-            {/* Botões de Ação */}
             <div className="flex gap-2 pt-1">
               <button
                 type="button"

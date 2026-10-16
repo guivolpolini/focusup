@@ -22,6 +22,7 @@ import type {
   FinanceCard,
   FinanceCategory,
   FinanceMonthlyBudget,
+  FinanceRecurringExpense,
 } from '../types';
 
 export class FocusUpDatabase extends Dexie {
@@ -47,6 +48,7 @@ export class FocusUpDatabase extends Dexie {
   financeCards!: Table<FinanceCard, string>;
   financeCategories!: Table<FinanceCategory, string>;
   financeBudgets!: Table<FinanceMonthlyBudget, string>;
+  financeRecurring!: Table<FinanceRecurringExpense, string>;
 
   constructor() {
     super('FocusUpDB');
@@ -86,6 +88,11 @@ export class FocusUpDatabase extends Dexie {
       financeCards: 'id, name, isArchived, createdAt, updatedAt',
       financeCategories: 'id, name, type, isCustom',
       financeBudgets: 'id, monthKey, updatedAt',
+    });
+
+    this.version(6).stores({
+      financeTransactions: 'id, type, date, categoryId, paymentMethod, cardId, installmentPlanId, invoiceMonth, recurringExpenseId, occurrenceKey, createdAt, updatedAt',
+      financeRecurring: 'id, name, categoryId, frequency, status, firstDueDate, createdAt, updatedAt',
     });
   }
 }

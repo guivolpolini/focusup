@@ -48,6 +48,7 @@ export const BackupSchema = z.object({
     financeCards: z.array(z.any()).optional(),
     financeCategories: z.array(z.any()).optional(),
     financeBudgets: z.array(z.any()).optional(),
+    financeRecurring: z.array(z.any()).optional(),
   }),
 });
 
@@ -80,6 +81,7 @@ export async function exportAllData(): Promise<string> {
     financeCards,
     financeCategories,
     financeBudgets,
+    financeRecurring,
   ] = await Promise.all([
     db.subjects.toArray(),
     db.tasks.toArray(),
@@ -103,6 +105,7 @@ export async function exportAllData(): Promise<string> {
     db.financeCards.toArray(),
     db.financeCategories.toArray(),
     db.financeBudgets.toArray(),
+    db.financeRecurring.toArray(),
   ]);
 
   const payload: BackupPayload = {
@@ -132,6 +135,7 @@ export async function exportAllData(): Promise<string> {
       financeCards,
       financeCategories,
       financeBudgets,
+      financeRecurring,
     },
   };
 
@@ -180,6 +184,7 @@ export async function restoreByReplacement(payload: BackupPayload): Promise<void
       db.financeCards,
       db.financeCategories,
       db.financeBudgets,
+      db.financeRecurring,
     ],
     async () => {
       await db.subjects.clear();
@@ -204,6 +209,7 @@ export async function restoreByReplacement(payload: BackupPayload): Promise<void
       await db.financeCards.clear();
       await db.financeCategories.clear();
       await db.financeBudgets.clear();
+      await db.financeRecurring.clear();
 
       const d = payload.data;
       if (d.subjects.length) await db.subjects.bulkAdd(d.subjects as Subject[]);
@@ -228,6 +234,7 @@ export async function restoreByReplacement(payload: BackupPayload): Promise<void
       if (d.financeCards?.length) await db.financeCards.bulkAdd(d.financeCards);
       if (d.financeCategories?.length) await db.financeCategories.bulkAdd(d.financeCategories);
       if (d.financeBudgets?.length) await db.financeBudgets.bulkAdd(d.financeBudgets);
+      if (d.financeRecurring?.length) await db.financeRecurring.bulkAdd(d.financeRecurring);
     }
   );
 }
@@ -299,6 +306,7 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
       db.financeCards,
       db.financeCategories,
       db.financeBudgets,
+      db.financeRecurring,
     ],
     async () => {
       const [
@@ -324,6 +332,7 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         localFinanceCards,
         localFinanceCategories,
         localFinanceBudgets,
+        localFinanceRecurring,
       ] = await Promise.all([
         db.subjects.toArray(),
         db.tasks.toArray(),
@@ -347,6 +356,7 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         db.financeCards.toArray(),
         db.financeCategories.toArray(),
         db.financeBudgets.toArray(),
+        db.financeRecurring.toArray(),
       ]);
 
       const d = payload.data;
@@ -373,6 +383,7 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
       const finCardRes = mergeEntitiesLWW(localFinanceCards, d.financeCards || []);
       const finCatRes = mergeEntitiesLWW(localFinanceCategories, d.financeCategories || []);
       const finBudRes = mergeEntitiesLWW(localFinanceBudgets, d.financeBudgets || []);
+      const finRecRes = mergeEntitiesLWW(localFinanceRecurring, d.financeRecurring || []);
 
       totalAdded =
         subRes.addedCount +
@@ -396,7 +407,8 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         finTxRes.addedCount +
         finCardRes.addedCount +
         finCatRes.addedCount +
-        finBudRes.addedCount;
+        finBudRes.addedCount +
+        finRecRes.addedCount;
 
       totalUpdated =
         subRes.updatedCount +
@@ -420,7 +432,8 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         finTxRes.updatedCount +
         finCardRes.updatedCount +
         finCatRes.updatedCount +
-        finBudRes.updatedCount;
+        finBudRes.updatedCount +
+        finRecRes.updatedCount;
 
       await Promise.all([
         db.subjects.bulkPut(subRes.merged),
@@ -445,6 +458,7 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         db.financeCards.bulkPut(finCardRes.merged),
         db.financeCategories.bulkPut(finCatRes.merged),
         db.financeBudgets.bulkPut(finBudRes.merged),
+        db.financeRecurring.bulkPut(finRecRes.merged),
       ]);
     }
   );

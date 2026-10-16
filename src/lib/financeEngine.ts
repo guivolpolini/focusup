@@ -2,6 +2,9 @@ import type {
   FinanceTransaction,
   FinanceCard,
   FinanceMonthlyBudget,
+  FinanceRecurringExpense,
+  FinanceRecurringFrequency,
+  FinancePaymentMethod,
 } from '../types';
 
 /**
@@ -431,3 +434,479 @@ export function parseCSVTransactions(csvContent: string): {
     invalidCount,
   };
 }
+
+// ============================================================================
+// MOTOR DE GASTOS FIXOS E RECORRÊNCIAS (SEM DUPLICIDADE)
+// ============================================================================
+
+export type RecurringOccurrenceStatus = 'paid' | 'pending' | 'overdue' | 'paused';
+
+export interface RecurringOccurrence {
+  occurrenceKey: string; // `${recurringId}_${dueDate}`
+  recurringId: string;
+  name: string;
+  categoryId: string;
+  expectedAmountInCents: number;
+  dueDate: string; // YYYY-MM-DD
+  frequency: FinanceRecurringFrequency;
+  paymentMethod: FinancePaymentMethod;
+  cardId?: string;
+  notes?: string;
+  status: RecurringOccurrenceStatus;
+  paidTransactionId?: string;
+  paidAmountInCents?: number;
+  paidDate?: string;
+}
+
+export interface MonthlyRecurringSummary {
+  monthKey: string;
+  occurrences: RecurringOccurrence[];
+  totalExpectedInCents: number; // Previsto total ativo (pagas + pendentes/atrasadas)
+  totalPaidInCents: number;
+  totalPendingInCents: number; // Soma de pendentes + atrasadas
+  paidCount: number;
+  pendingCount: number; // Pendentes + atrasadas
+  overdueCount: number;
+  nextDueOccurrence: RecurringOccurrence | null;
+}
+
+/**
+ * Formata data YYYY-MM-DD para DD/MM/AAAA
+ */
+export function formatDateBR(dateStr: string): string {
+  if (!dateStr || dateStr.length < 10) return dateStr || '';
+  const [y, m, d] = dateStr.slice(0, 10).split('-');
+  return `${d}/${m}/${y}`;
+}
+
+/**
+ * Gera de forma determinística todas as ocorrências de gastos fixos para um mês específico (YYYY-MM)
+ * sem duplicar registros ao recarregar ou navegar entre meses.
+ */
+export function getRecurringOccurrencesForMonth(
+  recurringExpenses: FinanceRecurringExpense[],
+  transactions: FinanceTransaction[],
+  monthKey: string,
+  referenceTodayStr?: string
+): MonthlyRecurringSummary {
+  const todayStr = referenceTodayStr || new Date().toISOString().slice(0, 10);
+  const [tYearStr, tMonthStr] = monthKey.split('-');
+  const targetYear = parseInt(tYearStr, 10);
+  const targetMonth = parseInt(tMonthStr, 10); // 1..12
+  const lastDayOfTargetMonth = new Date(targetYear, targetMonth, 0).getDate();
+
+  // Mapa rápido de transações já pagas vinculadas por occurrenceKey ou ID determinístico
+  const paidByOccurrenceKey = new Map<string, FinanceTransaction>();
+  for (const tx of transactions) {
+    if (tx.occurrenceKey) {
+      paidByOccurrenceKey.set(tx.occurrenceKey, tx);
+    } else if (tx.id.startsWith('tx_rec_')) {
+      const key = tx.id.replace(/^tx_rec_/, '');
+      paidByOccurrenceKey.set(key, tx);
+    }
+  }
+
+  const occurrences: RecurringOccurrence[] = [];
+
+  for (const rec of recurringExpenses) {
+    if (!rec.firstDueDate || rec.firstDueDate.length < 10) continue;
+    const [sYearStr, sMonthStr, sDayStr] = rec.firstDueDate.slice(0, 10).split('-');
+    const startYear = parseInt(sYearStr, 10);
+    const startMonth = parseInt(sMonthStr, 10);
+    const startDay = parseInt(sDayStr, 10);
+
+    const monthsDiff = (targetYear - startYear) * 12 + (targetMonth - startMonth);
+    if (monthsDiff < 0) continue; // Mês anterior ao início da recorrência
+
+    const dueDates: string[] = [];
+
+    if (rec.frequency === 'monthly') {
+      const effectiveDay = Math.min(startDay, lastDayOfTargetMonth);
+      const dueStr = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(effectiveDay).padStart(2, '0')}`;
+      if (dueStr >= rec.firstDueDate) {
+        dueDates.push(dueStr);
+      }
+    } else if (rec.frequency === 'quarterly') {
+      if (monthsDiff % 3 === 0) {
+        const effectiveDay = Math.min(startDay, lastDayOfTargetMonth);
+        const dueStr = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(effectiveDay).padStart(2, '0')}`;
+        if (dueStr >= rec.firstDueDate) {
+          dueDates.push(dueStr);
+        }
+      }
+    } else if (rec.frequency === 'yearly') {
+      if (monthsDiff % 12 === 0) {
+        const effectiveDay = Math.min(startDay, lastDayOfTargetMonth);
+        const dueStr = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(effectiveDay).padStart(2, '0')}`;
+        if (dueStr >= rec.firstDueDate) {
+          dueDates.push(dueStr);
+        }
+      }
+    } else if (rec.frequency === 'weekly') {
+      const cursor = new Date(startYear, startMonth - 1, startDay, 12, 0, 0);
+      const endOfTarget = new Date(targetYear, targetMonth - 1, lastDayOfTargetMonth, 23, 59, 59);
+      let safety = 0;
+      while (cursor <= endOfTarget && safety < 1000) {
+        safety++;
+        const cy = cursor.getFullYear();
+        const cm = cursor.getMonth() + 1;
+        const cd = cursor.getDate();
+        if (cy === targetYear && cm === targetMonth) {
+          const dueStr = `${cy}-${String(cm).padStart(2, '0')}-${String(cd).padStart(2, '0')}`;
+          dueDates.push(dueStr);
+        }
+        cursor.setDate(cursor.getDate() + 7);
+      }
+    }
+
+    for (const dueDate of dueDates) {
+      const occurrenceKey = `${rec.id}_${dueDate}`;
+      const paidTx = paidByOccurrenceKey.get(occurrenceKey);
+
+      let status: RecurringOccurrenceStatus;
+      if (paidTx) {
+        status = 'paid';
+      } else if (rec.status === 'paused') {
+        status = 'paused';
+      } else if (dueDate < todayStr) {
+        status = 'overdue';
+      } else {
+        status = 'pending';
+      }
+
+      occurrences.push({
+        occurrenceKey,
+        recurringId: rec.id,
+        name: rec.name,
+        categoryId: rec.categoryId,
+        expectedAmountInCents: rec.amountInCents,
+        dueDate,
+        frequency: rec.frequency,
+        paymentMethod: rec.paymentMethod,
+        cardId: rec.cardId,
+        notes: rec.notes,
+        status,
+        paidTransactionId: paidTx?.id,
+        paidAmountInCents: paidTx?.amountInCents,
+        paidDate: paidTx?.date,
+      });
+    }
+  }
+
+  occurrences.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.name.localeCompare(b.name));
+
+  let totalPaidInCents = 0;
+  let totalPendingInCents = 0;
+  let paidCount = 0;
+  let pendingCount = 0;
+  let overdueCount = 0;
+
+  for (const occ of occurrences) {
+    if (occ.status === 'paid') {
+      totalPaidInCents += occ.paidAmountInCents ?? occ.expectedAmountInCents;
+      paidCount++;
+    } else if (occ.status === 'pending' || occ.status === 'overdue') {
+      totalPendingInCents += occ.expectedAmountInCents;
+      pendingCount++;
+      if (occ.status === 'overdue') {
+        overdueCount++;
+      }
+    }
+  }
+
+  const totalExpectedInCents = totalPaidInCents + totalPendingInCents;
+  const nextDueOccurrence =
+    occurrences.find((o) => o.status === 'overdue' || o.status === 'pending') || null;
+
+  return {
+    monthKey,
+    occurrences,
+    totalExpectedInCents,
+    totalPaidInCents,
+    totalPendingInCents,
+    paidCount,
+    pendingCount,
+    overdueCount,
+    nextDueOccurrence,
+  };
+}
+
+/**
+ * Cria ou atualiza de forma idempotente (sem duplicidade) a transação de pagamento de uma ocorrência fixa.
+ */
+export function buildRecurringPaymentTransaction(params: {
+  occurrence: RecurringOccurrence;
+  paidDate: string; // YYYY-MM-DD
+  paidAmountInCents?: number;
+  cards?: FinanceCard[];
+  existingTransaction?: FinanceTransaction;
+}): FinanceTransaction {
+  const { occurrence, paidDate, paidAmountInCents, cards = [], existingTransaction } = params;
+  const now = Date.now();
+  const amountInCents = paidAmountInCents ?? occurrence.expectedAmountInCents;
+
+  let invoiceMonth: string | undefined;
+  if (occurrence.paymentMethod === 'credit' && occurrence.cardId) {
+    const card = cards.find((c) => c.id === occurrence.cardId);
+    if (card) {
+      invoiceMonth = calculateInvoiceMonth(paidDate, card.closingDay);
+    } else {
+      invoiceMonth = paidDate.slice(0, 7);
+    }
+  }
+
+  return {
+    id: existingTransaction?.id || `tx_rec_${occurrence.occurrenceKey}`,
+    type: 'expense',
+    amountInCents,
+    description: occurrence.name,
+    categoryId: occurrence.categoryId,
+    date: paidDate,
+    paymentMethod: occurrence.paymentMethod,
+    cardId: occurrence.paymentMethod === 'credit' ? occurrence.cardId : undefined,
+    invoiceMonth,
+    recurringExpenseId: occurrence.recurringId,
+    occurrenceKey: occurrence.occurrenceKey,
+    createdAt: existingTransaction?.createdAt || now,
+    updatedAt: now,
+  };
+}
+
+// ============================================================================
+// ANÁLISES DO DASHBOARD: EVOLUÇÃO MENSAL, FIXOS VS VARIÁVEIS, COMPARATIVO E VENCIMENTOS
+// ============================================================================
+
+export interface MonthlyEvolutionPoint {
+  monthKey: string;
+  shortLabel: string; // ex: 'Out/26'
+  fullLabel: string; // ex: 'Outubro de 2026'
+  incomeInCents: number;
+  expenseInCents: number;
+  balanceInCents: number;
+}
+
+export function calculateMonthlyEvolution(
+  transactions: FinanceTransaction[],
+  endMonthKey: string,
+  monthsCount: number = 6
+): { points: MonthlyEvolutionPoint[]; hasAnyData: boolean } {
+  const points: MonthlyEvolutionPoint[] = [];
+  let hasAnyData = false;
+
+  for (let i = monthsCount - 1; i >= 0; i--) {
+    const mk = getAdjacentMonthKey(endMonthKey, -i);
+    const summary = calculateMonthlySummary(transactions, mk);
+    const [yStr, mStr] = mk.split('-');
+    const date = new Date(parseInt(yStr, 10), parseInt(mStr, 10) - 1, 1);
+    const shortMonth = date.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+    const capitalizedShort = shortMonth.charAt(0).toUpperCase() + shortMonth.slice(1);
+
+    if (summary.totalIncomeInCents > 0 || summary.totalExpenseInCents > 0) {
+      hasAnyData = true;
+    }
+
+    points.push({
+      monthKey: mk,
+      shortLabel: `${capitalizedShort}/${yStr.slice(2)}`,
+      fullLabel: formatMonthYear(mk),
+      incomeInCents: summary.totalIncomeInCents,
+      expenseInCents: summary.totalExpenseInCents,
+      balanceInCents: summary.estimatedBalanceInCents,
+    });
+  }
+
+  return { points, hasAnyData };
+}
+
+export interface FixedVsVariableResult {
+  fixedRealizedInCents: number;
+  fixedPendingInCents: number;
+  fixedTotalInCents: number; // Realizado fixo + pendente fixo
+  variableRealizedInCents: number;
+  totalAnalysedInCents: number;
+  fixedPercentage: number;
+  variablePercentage: number;
+}
+
+export function calculateFixedVsVariable(
+  transactions: FinanceTransaction[],
+  recurringSummary: MonthlyRecurringSummary,
+  monthKey: string
+): FixedVsVariableResult {
+  let fixedRealizedInCents = 0;
+  let variableRealizedInCents = 0;
+
+  for (const tx of transactions) {
+    if (tx.type !== 'expense' || tx.isInvoicePayment) continue;
+    const txMonth = tx.paymentMethod === 'credit' && tx.invoiceMonth ? tx.invoiceMonth : tx.date.slice(0, 7);
+    if (txMonth !== monthKey) continue;
+
+    if (tx.recurringExpenseId || tx.occurrenceKey || tx.id.startsWith('tx_rec_')) {
+      fixedRealizedInCents += tx.amountInCents;
+    } else {
+      variableRealizedInCents += tx.amountInCents;
+    }
+  }
+
+  const fixedPendingInCents = recurringSummary.totalPendingInCents;
+  const fixedTotalInCents = fixedRealizedInCents + fixedPendingInCents;
+  const totalAnalysedInCents = fixedTotalInCents + variableRealizedInCents;
+
+  const fixedPercentage = totalAnalysedInCents > 0 ? Math.round((fixedTotalInCents / totalAnalysedInCents) * 100) : 0;
+  const variablePercentage = totalAnalysedInCents > 0 ? 100 - fixedPercentage : 0;
+
+  return {
+    fixedRealizedInCents,
+    fixedPendingInCents,
+    fixedTotalInCents,
+    variableRealizedInCents,
+    totalAnalysedInCents,
+    fixedPercentage,
+    variablePercentage,
+  };
+}
+
+export interface PreviousMonthComparisonResult {
+  currentMonthKey: string;
+  previousMonthKey: string;
+  hasPreviousData: boolean;
+  currentIncomeInCents: number;
+  previousIncomeInCents: number;
+  incomeDiffInCents: number;
+  incomeChangePercent: number | null;
+  currentExpenseInCents: number;
+  previousExpenseInCents: number;
+  expenseDiffInCents: number;
+  expenseChangePercent: number | null;
+  categoryVariations: {
+    categoryId: string;
+    currentCents: number;
+    previousCents: number;
+    diffCents: number;
+    changePercent: number | null;
+  }[];
+}
+
+export function calculatePreviousMonthComparison(
+  transactions: FinanceTransaction[],
+  currentMonthKey: string
+): PreviousMonthComparisonResult {
+  const previousMonthKey = getAdjacentMonthKey(currentMonthKey, -1);
+  const currSummary = calculateMonthlySummary(transactions, currentMonthKey);
+  const prevSummary = calculateMonthlySummary(transactions, previousMonthKey);
+
+  const hasPreviousData = prevSummary.totalIncomeInCents > 0 || prevSummary.totalExpenseInCents > 0;
+
+  const incomeDiffInCents = currSummary.totalIncomeInCents - prevSummary.totalIncomeInCents;
+  const incomeChangePercent =
+    prevSummary.totalIncomeInCents > 0
+      ? ((currSummary.totalIncomeInCents - prevSummary.totalIncomeInCents) / prevSummary.totalIncomeInCents) * 100
+      : null;
+
+  const expenseDiffInCents = currSummary.totalExpenseInCents - prevSummary.totalExpenseInCents;
+  const expenseChangePercent =
+    prevSummary.totalExpenseInCents > 0
+      ? ((currSummary.totalExpenseInCents - prevSummary.totalExpenseInCents) / prevSummary.totalExpenseInCents) * 100
+      : null;
+
+  const catIds = new Set<string>();
+  currSummary.categoryExpenses.forEach((c) => catIds.add(c.categoryId));
+  prevSummary.categoryExpenses.forEach((c) => catIds.add(c.categoryId));
+
+  const categoryVariations = Array.from(catIds)
+    .map((categoryId) => {
+      const currentCents = currSummary.categoryExpenses.find((c) => c.categoryId === categoryId)?.totalCents || 0;
+      const previousCents = prevSummary.categoryExpenses.find((c) => c.categoryId === categoryId)?.totalCents || 0;
+      const diffCents = currentCents - previousCents;
+      const changePercent = previousCents > 0 ? ((currentCents - previousCents) / previousCents) * 100 : null;
+      return {
+        categoryId,
+        currentCents,
+        previousCents,
+        diffCents,
+        changePercent,
+      };
+    })
+    .filter((v) => v.diffCents !== 0)
+    .sort((a, b) => Math.abs(b.diffCents) - Math.abs(a.diffCents));
+
+  return {
+    currentMonthKey,
+    previousMonthKey,
+    hasPreviousData,
+    currentIncomeInCents: currSummary.totalIncomeInCents,
+    previousIncomeInCents: prevSummary.totalIncomeInCents,
+    incomeDiffInCents,
+    incomeChangePercent,
+    currentExpenseInCents: currSummary.totalExpenseInCents,
+    previousExpenseInCents: prevSummary.totalExpenseInCents,
+    expenseDiffInCents,
+    expenseChangePercent,
+    categoryVariations,
+  };
+}
+
+export interface UpcomingCommitmentItem {
+  id: string;
+  kind: 'recurring' | 'card_invoice';
+  title: string;
+  amountInCents: number;
+  dueDate: string; // YYYY-MM-DD
+  status: 'overdue' | 'pending' | 'paid';
+  recurringOccurrence?: RecurringOccurrence;
+  cardId?: string;
+}
+
+export function getUpcomingCommitments(
+  recurringSummary: MonthlyRecurringSummary,
+  cardsSummary: CardInvoiceSummary[],
+  monthKey: string,
+  referenceTodayStr?: string
+): UpcomingCommitmentItem[] {
+  const todayStr = referenceTodayStr || new Date().toISOString().slice(0, 10);
+  const items: UpcomingCommitmentItem[] = [];
+
+  for (const occ of recurringSummary.occurrences) {
+    if (occ.status === 'paused') continue;
+    items.push({
+      id: `comm_rec_${occ.occurrenceKey}`,
+      kind: 'recurring',
+      title: occ.name,
+      amountInCents: occ.status === 'paid' ? (occ.paidAmountInCents ?? occ.expectedAmountInCents) : occ.expectedAmountInCents,
+      dueDate: occ.dueDate,
+      status: occ.status,
+      recurringOccurrence: occ,
+    });
+  }
+
+  const [yStr, mStr] = monthKey.split('-');
+  const year = parseInt(yStr, 10);
+  const month = parseInt(mStr, 10);
+  const lastDay = new Date(year, month, 0).getDate();
+
+  for (const cs of cardsSummary) {
+    if (cs.currentInvoiceTotalInCents <= 0) continue;
+    const dueDay = Math.min(cs.card.dueDay, lastDay);
+    const dueDate = `${year}-${String(month).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`;
+    items.push({
+      id: `comm_card_${cs.card.id}_${monthKey}`,
+      kind: 'card_invoice',
+      title: `Fatura ${cs.card.name}`,
+      amountInCents: cs.currentInvoiceTotalInCents,
+      dueDate,
+      status: dueDate < todayStr ? 'overdue' : 'pending',
+      cardId: cs.card.id,
+    });
+  }
+
+  // Ordena: não pagos primeiro (atrasados -> pendentes), depois por proximidade da data de vencimento
+  items.sort((a, b) => {
+    const aPaid = a.status === 'paid' ? 1 : 0;
+    const bPaid = b.status === 'paid' ? 1 : 0;
+    if (aPaid !== bPaid) return aPaid - bPaid;
+    return a.dueDate.localeCompare(b.dueDate);
+  });
+
+  return items;
+}
+
