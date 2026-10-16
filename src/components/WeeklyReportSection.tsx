@@ -288,9 +288,11 @@ export function WeeklyReportSection({
               {currentReport.gym.completedWorkoutsCount}
               <span className="text-xs text-slate-400 font-bold">/{currentReport.gym.weeklyGoalDays}</span>
             </div>
-            <div className="text-[11px] text-slate-400 font-medium mt-0.5">
-              {currentReport.gym.totalVolumeKg.toLocaleString()} kg levantados
-            </div>
+            {currentReport.gym.totalVolumeKg > 0 && (
+              <div className="text-[11px] text-slate-400 font-medium mt-0.5">
+                {currentReport.gym.totalVolumeKg.toLocaleString()} kg levantados
+              </div>
+            )}
           </div>
 
           <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] font-bold">
@@ -533,10 +535,16 @@ export function WeeklyReportSection({
                   </div>
 
                   <div className="text-right">
-                    <span className="text-xs font-black font-mono text-slate-800">
-                      {w.totalVolumeKg.toLocaleString()} kg
-                    </span>
-                    <span className="text-[9px] text-slate-400 block font-medium">volume levantado</span>
+                    {w.totalVolumeKg > 0 ? (
+                      <>
+                        <span className="text-xs font-black font-mono text-slate-800">
+                          {w.totalVolumeKg.toLocaleString()} kg
+                        </span>
+                        <span className="text-[9px] text-slate-400 block font-medium">volume levantado</span>
+                      </>
+                    ) : (
+                      <span className="text-[11px] font-semibold text-emerald-600 block">Concluído</span>
+                    )}
                   </div>
                 </div>
               ))

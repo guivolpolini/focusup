@@ -399,9 +399,15 @@ export function generateWeeklyHighlights(
         `Meta de treinos conquistada! Você realizou ${current.gym.completedWorkoutsCount} treinos (meta de ${current.gym.weeklyGoalDays}).`
       );
     } else {
-      highlights.push(
-        `Você completou ${current.gym.completedWorkoutsCount} treinos com um volume total de ${current.gym.totalVolumeKg.toLocaleString()} kg levantados.`
-      );
+      if (current.gym.totalVolumeKg > 0) {
+        highlights.push(
+          `Você completou ${current.gym.completedWorkoutsCount} treino${current.gym.completedWorkoutsCount === 1 ? '' : 's'} com um volume total de ${current.gym.totalVolumeKg.toLocaleString()} kg levantados.`
+        );
+      } else {
+        highlights.push(
+          `Você completou ${current.gym.completedWorkoutsCount} treino${current.gym.completedWorkoutsCount === 1 ? '' : 's'} nesta semana (meta de ${current.gym.weeklyGoalDays}).`
+        );
+      }
     }
   }
 
