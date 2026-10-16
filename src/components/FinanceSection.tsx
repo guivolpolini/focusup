@@ -197,14 +197,21 @@ export function FinanceSection() {
     setShowTransactionModal(true);
   };
 
+  const handleToggleVoice = async () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      setVoiceParsingError(null);
+      resetTranscript();
+      await startListening();
+    }
+  };
+
   const handleStartVoice = () => {
     setVoiceInput('');
     setVoiceParsingError(null);
     resetTranscript();
     setShowVoiceModal(true);
-    if (isSpeechSupported) {
-      startListening();
-    }
   };
 
   // Abertura de Modal de Transação (Nova ou Edição)
@@ -1571,50 +1578,42 @@ export function FinanceSection() {
               </button>
             </div>
 
-            {/* Visual Microfone Animado */}
-            <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
-              {isListening && (
-                <div className="absolute inset-0 rounded-full bg-rose-500/20 animate-ping" />
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  if (isListening) {
-                    stopListening();
-                  } else if (isSpeechSupported) {
-                    resetTranscript();
-                    startListening();
-                  }
-                }}
-                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                  isListening
-                    ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/40 scale-105'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-                title={isListening ? 'Clique para pausar microfone' : 'Clique para falar'}
-              >
-                <Mic className="w-8 h-8" />
-              </button>
-            </div>
-
-            {/* Status e Campo de Texto Interativo */}
-            <div className="space-y-2 text-left">
-              <div className="text-center">
-                <h4 className="text-sm font-bold text-slate-800">
-                  {isListening
-                    ? 'Ouvindo... Fale agora'
-                    : voiceInput
-                    ? 'Texto capturado'
-                    : isSpeechSupported
-                    ? 'Toque no microfone e fale'
-                    : 'Digite o comando financeiro'}
-                </h4>
-                <p className="text-[11px] text-slate-400">
-                  {isListening
-                    ? 'Diga o valor, onde gastou e forma de pagamento'
-                    : 'Você pode falar ou ajustar o texto diretamente'}
-                </p>
+            {/* Botão de Microfone Principal */}
+            <button
+              type="button"
+              onClick={handleToggleVoice}
+              className={`w-full p-5 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer select-none ${
+                isListening
+                  ? 'bg-rose-50 border-2 border-rose-500 shadow-md shadow-rose-500/20 active:scale-98'
+                  : 'bg-slate-50 hover:bg-slate-100/90 border-2 border-slate-200 active:scale-98'
+              }`}
+            >
+              <div className="relative flex items-center justify-center">
+                {isListening && (
+                  <div className="absolute -inset-3 rounded-full bg-rose-500/20 animate-ping" />
+                )}
+                <div
+                  className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${
+                    isListening
+                      ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/40 scale-105'
+                      : 'bg-white text-slate-700 shadow-sm border border-slate-200'
+                  }`}
+                >
+                  <Mic className="w-8 h-8" />
+                </div>
               </div>
+
+              <div className="text-center">
+                <span className={`text-sm font-bold block ${isListening ? 'text-rose-600' : 'text-slate-800'}`}>
+                  {isListening ? 'Ouvindo... Fale agora!' : 'Toque aqui para falar'}
+                </span>
+                <span className="text-[11px] text-slate-500 block mt-0.5">
+                  {isListening
+                    ? 'Toque para finalizar e processar'
+                    : 'Diga o valor, onde gastou e forma de pagamento'}
+                </span>
+              </div>
+            </button>
 
               <div className="space-y-1">
                 <textarea
@@ -1634,7 +1633,6 @@ export function FinanceSection() {
                   className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 resize-none font-medium text-slate-800"
                 />
               </div>
-            </div>
 
             {/* Alerta de Erro de Reconhecimento ou Validação */}
             {(speechError || voiceParsingError) && (

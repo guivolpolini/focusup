@@ -10,7 +10,7 @@ export interface UseSpeechRecognitionReturn {
   isListening: boolean;
   transcript: string;
   error: string | null;
-  startListening: () => void;
+  startListening: () => Promise<void>;
   stopListening: () => void;
   resetTranscript: () => void;
 }
@@ -45,34 +45,52 @@ export function useSpeechRecognition(options?: {
       try {
         recognitionRef.current.stop();
       } catch {
-        // Ignora se já estiver finalizado
+        // Ignora
       }
     }
     setIsListening(false);
   }, []);
 
-  const startListening = useCallback(() => {
+  const startListening = useCallback(async () => {
     if (!SpeechRecognitionClass) {
       setError('Seu navegador não oferece suporte nativo à Web Speech API.');
       return;
     }
 
     try {
+      // 1. Tenta garantir a permissão do microfone via getUserMedia se disponível
+      if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach((track) => track.stop());
+        } catch (permErr: any) {
+          if (permErr.name === 'NotAllowedError' || permErr.name === 'PermissionDeniedError') {
+            setError('Permissão de microfone negada. Permita o microfone no ícone de cadeado do navegador.');
+            setIsListening(false);
+            return;
+          }
+        }
+      }
+
+      // 2. Limpa instância anterior
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
         } catch {}
+        recognitionRef.current = null;
       }
 
       const recognition = new SpeechRecognitionClass();
       recognition.lang = 'pt-BR';
-      recognition.continuous = true;
+      // continuous = false garante compatibilidade com iOS WebKit e Android Chrome
+      recognition.continuous = false;
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
 
       latestTranscriptRef.current = '';
       setTranscript('');
       setError(null);
+      setIsListening(true);
 
       recognition.onstart = () => {
         setIsListening(true);
@@ -95,11 +113,11 @@ export function useSpeechRecognition(options?: {
       recognition.onerror = (event: any) => {
         let msg = 'Erro no reconhecimento de voz.';
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          msg = 'Permissão de microfone negada. Permita o microfone nas configurações do navegador.';
+          msg = 'Permissão de microfone negada. Clique no cadeado da barra de endereço e permita o microfone.';
         } else if (event.error === 'no-speech') {
-          msg = 'Nenhum som detectado. Fale mais próximo do microfone.';
+          msg = 'Nenhum som detectado. Toque no microfone para falar novamente.';
         } else if (event.error === 'network') {
-          msg = 'Falha de conexão com o serviço de reconhecimento de voz.';
+          msg = 'Falha de conexão com o serviço de voz. Verifique sua conexão.';
         } else if (event.error === 'audio-capture') {
           msg = 'Microfone não encontrado ou ocupado por outro aplicativo.';
         }
