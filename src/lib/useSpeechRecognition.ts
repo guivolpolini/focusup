@@ -27,6 +27,9 @@ export function useSpeechRecognition(options?: {
   const latestTranscriptRef = useRef<string>('');
   const wasCancelledRef = useRef<boolean>(false);
   const hasEmittedFinalRef = useRef<boolean>(false);
+  const hadErrorRef = useRef<boolean>(false);
+  const audioStartedRef = useRef<boolean>(false);
+  const soundDetectedRef = useRef<boolean>(false);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onFinalResultRef = useRef(options?.onFinalResult);
@@ -56,6 +59,7 @@ export function useSpeechRecognition(options?: {
     setError(null);
     latestTranscriptRef.current = '';
     hasEmittedFinalRef.current = false;
+    hadErrorRef.current = false;
   }, [clearTimers]);
 
   const emitFinalIfReady = useCallback(() => {
@@ -93,11 +97,11 @@ export function useSpeechRecognition(options?: {
         // Ignora
       }
     }
-    // Fallback caso onend demore no navegador
+    // Fallback caso onend demore após stop()
     stopFallbackTimerRef.current = setTimeout(() => {
       setIsListening(false);
       emitFinalIfReady();
-    }, 500);
+    }, 800);
   }, [emitFinalIfReady]);
 
   const startListening = useCallback(() => {
@@ -116,15 +120,19 @@ export function useSpeechRecognition(options?: {
         recognitionRef.current = null;
       }
 
-      const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
       const recognition = new SpeechRecognitionClass();
       recognition.lang = 'pt-BR';
-      recognition.continuous = !isIOS;
+      // continuous = false unifica o comportamento entre PC e Celular:
+      // finaliza e entrega a transcrição completa assim que o usuário termina a frase ou clica em parar.
+      recognition.continuous = false;
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
 
       wasCancelledRef.current = false;
       hasEmittedFinalRef.current = false;
+      hadErrorRef.current = false;
+      audioStartedRef.current = false;
+      soundDetectedRef.current = false;
       latestTranscriptRef.current = '';
       setTranscript('');
       setError(null);
@@ -134,14 +142,27 @@ export function useSpeechRecognition(options?: {
         setIsListening(true);
       };
 
+      recognition.onaudiostart = () => {
+        audioStartedRef.current = true;
+      };
+
+      recognition.onsoundstart = () => {
+        soundDetectedRef.current = true;
+      };
+
+      recognition.onspeechstart = () => {
+        soundDetectedRef.current = true;
+      };
+
       recognition.onresult = (event: any) => {
+        soundDetectedRef.current = true;
         let finalParts = '';
         let interimParts = '';
 
         for (let i = 0; i < event.results.length; i++) {
           const item = event.results[i];
           if (!item || !item[0]) continue;
-          const piece = item[0].transcript.trim();
+          const piece = String(item[0].transcript || '').trim();
           if (!piece) continue;
 
           if (item.isFinal) {
@@ -157,7 +178,6 @@ export function useSpeechRecognition(options?: {
           setTranscript(combined);
           setError(null);
 
-          // Auto-finaliza após 2s de silêncio depois que o usuário já falou a frase
           if (silenceTimerRef.current) {
             clearTimeout(silenceTimerRef.current);
           }
@@ -167,7 +187,7 @@ export function useSpeechRecognition(options?: {
                 recognitionRef.current.stop();
               } catch {}
             }
-          }, 2000);
+          }, 1800);
         }
       };
 
@@ -176,15 +196,16 @@ export function useSpeechRecognition(options?: {
           setIsListening(false);
           return;
         }
+        hadErrorRef.current = true;
         let msg = 'Erro no reconhecimento de voz.';
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
           msg = 'Permissão de microfone negada. Clique no cadeado da barra de endereço e permita o microfone.';
         } else if (event.error === 'no-speech') {
-          msg = 'Nenhuma fala detectada pelo microfone. Verifique se o microfone correto está selecionado no navegador.';
+          msg = 'Nenhum som detectado no microfone. No PC, verifique no ícone da barra de endereço se o microfone correto está selecionado.';
         } else if (event.error === 'network') {
-          msg = 'O navegador bloqueou o serviço de voz em nuvem (comum no Brave). Use Chrome/Edge ou digite abaixo.';
+          msg = 'Serviço de voz bloqueado pelo navegador (comum no Brave/Opera no PC). Use Chrome/Edge ou digite abaixo.';
         } else if (event.error === 'audio-capture') {
-          msg = 'Microfone não encontrado ou ocupado por outro aplicativo.';
+          msg = 'Microfone não encontrado ou ocupado por outro aplicativo no PC.';
         }
         setError(msg);
         setIsListening(false);
@@ -199,6 +220,14 @@ export function useSpeechRecognition(options?: {
         const captured = latestTranscriptRef.current.trim();
         if (captured) {
           emitFinalIfReady();
+        } else if (!hadErrorRef.current) {
+          if (!audioStartedRef.current) {
+            setError('Não foi possível abrir o microfone. Verifique a permissão de microfone no navegador e no Windows.');
+          } else if (!soundDetectedRef.current) {
+            setError('Nenhum som chegou ao microfone. No PC, clique no ícone de câmera/microfone na barra de endereço e selecione o microfone correto.');
+          } else {
+            setError('Som detectado, mas o navegador não converteu a fala em texto. Se estiver usando Brave/Opera no PC, teste no Chrome/Edge ou digite abaixo.');
+          }
         }
       };
 

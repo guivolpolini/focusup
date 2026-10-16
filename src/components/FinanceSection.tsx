@@ -206,9 +206,6 @@ export function FinanceSection() {
   const handleToggleVoice = () => {
     if (isListening) {
       stopListening();
-      if (voiceInput.trim()) {
-        handleVoiceFinal(voiceInput);
-      }
     } else {
       setVoiceParsingError(null);
       resetTranscript();
