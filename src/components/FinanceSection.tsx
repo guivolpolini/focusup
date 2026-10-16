@@ -16,6 +16,7 @@ import {
   ArrowDownRight,
   HelpCircle,
   Percent,
+  Mic,
 } from 'lucide-react';
 import { db } from '../lib/db';
 import {
@@ -30,6 +31,8 @@ import {
   parseCSVTransactions,
   type ParsedCSVRow,
 } from '../lib/financeEngine';
+import { parseVoiceFinanceCommand } from '../lib/voiceFinanceParser';
+import { useSpeechRecognition } from '../lib/useSpeechRecognition';
 import type {
   FinanceTransaction,
   FinanceCard,
@@ -54,6 +57,8 @@ export function FinanceSection() {
   const [showBudgetModal, setShowBudgetModal] = useState<boolean>(false);
   const [showCSVModal, setShowCSVModal] = useState<boolean>(false);
   const [showNewCategoryModal, setShowNewCategoryModal] = useState<boolean>(false);
+  const [showVoiceModal, setShowVoiceModal] = useState<boolean>(false);
+  const [voiceOriginText, setVoiceOriginText] = useState<string | null>(null);
 
   // Consultas Reativas do Dexie
   const transactions = useLiveQuery(() => db.financeTransactions.toArray()) || [];
@@ -140,9 +145,56 @@ export function FinanceSection() {
   const handleNextMonth = () => setCurrentMonthKey(getAdjacentMonthKey(currentMonthKey, 1));
   const handleCurrentMonth = () => setCurrentMonthKey(getMonthKey());
 
+  // Processamento de Comando de Voz
+  const handleVoiceFinal = (finalText: string) => {
+    setShowVoiceModal(false);
+    if (!finalText.trim()) return;
+
+    const parsed = parseVoiceFinanceCommand(finalText, categories, cards);
+    if (parsed.amountInCents === 0) {
+      alert(`Reconhecemos: "${finalText}", mas não identificamos o valor em reais. Tente falar novamente mencionando o valor (ex: "Gastei 50 reais no mercado").`);
+      return;
+    }
+
+    setEditingTransaction(null);
+    setTxType(parsed.type);
+    setTxAmountStr((parsed.amountInCents / 100).toFixed(2).replace('.', ','));
+    setTxDescription(parsed.description);
+    setTxCategoryId(parsed.categoryId);
+    setTxDate(parsed.date);
+    setTxPaymentMethod(parsed.paymentMethod);
+    setTxCardId(parsed.cardId || (cards[0]?.id || ''));
+    setTxInstallments(parsed.totalInstallments);
+    setVoiceOriginText(finalText);
+    setShowTransactionModal(true);
+  };
+
+  const {
+    isSupported: isSpeechSupported,
+    isListening,
+    transcript: liveTranscript,
+    error: speechError,
+    startListening,
+    stopListening,
+    resetTranscript,
+  } = useSpeechRecognition({
+    onFinalResult: handleVoiceFinal,
+  });
+
+  const handleStartVoice = () => {
+    if (!isSpeechSupported) {
+      alert('Seu navegador não suporta reconhecimento de voz Web Speech API. Use o cadastro manual.');
+      return;
+    }
+    resetTranscript();
+    setShowVoiceModal(true);
+    startListening();
+  };
+
   // Abertura de Modal de Transação (Nova ou Edição)
   const openNewTransactionModal = (type: FinanceTransactionType = 'expense') => {
     setEditingTransaction(null);
+    setVoiceOriginText(null);
     setTxType(type);
     setTxDescription('');
     setTxAmountStr('');
@@ -158,6 +210,7 @@ export function FinanceSection() {
 
   const openEditTransactionModal = (tx: FinanceTransaction) => {
     setEditingTransaction(tx);
+    setVoiceOriginText(null);
     setTxType(tx.type);
     setTxDescription(tx.description);
     setTxAmountStr((tx.amountInCents / 100).toFixed(2).replace('.', ','));
@@ -410,6 +463,14 @@ export function FinanceSection() {
           >
             <Plus className="w-4 h-4" />
             Nova Receita
+          </button>
+          <button
+            onClick={handleStartVoice}
+            title={isSpeechSupported ? 'Registrar por comando de voz' : 'Reconhecimento de voz não suportado pelo navegador'}
+            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold shadow-xs transition-all active:scale-95"
+          >
+            <Mic className="w-4 h-4 text-indigo-600" />
+            <span className="hidden sm:inline">Voz</span>
           </button>
           <input
             type="file"
@@ -959,6 +1020,20 @@ export function FinanceSection() {
             </div>
 
             <form onSubmit={handleSaveTransaction} className="space-y-4">
+              {/* Alerta de Lançamento por Comando de Voz */}
+              {voiceOriginText && (
+                <div className="p-3 bg-indigo-50/90 border border-indigo-200/80 rounded-xl space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-900">
+                    <Mic className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
+                    Comando de voz interpretado
+                  </div>
+                  <p className="text-xs text-slate-700 italic">"{voiceOriginText}"</p>
+                  <p className="text-[11px] text-indigo-700 font-semibold">
+                    Confira os dados antes de salvar.
+                  </p>
+                </div>
+              )}
+
               {/* Seletor Tipo */}
               {!editingTransaction && (
                 <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
@@ -1453,6 +1528,100 @@ export function FinanceSection() {
                 <CheckCircle2 className="w-4 h-4" />
                 Confirmar Importação
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL: GRAVAÇÃO POR COMANDO DE VOZ */}
+      {/* ============================================================ */}
+      {showVoiceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl text-center space-y-5">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Comando de Voz
+              </span>
+              <button
+                onClick={() => {
+                  stopListening();
+                  setShowVoiceModal(false);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Visual Microfone Animado */}
+            <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
+              {isListening && (
+                <div className="absolute inset-0 rounded-full bg-rose-500/20 animate-ping" />
+              )}
+              <div
+                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${
+                  isListening
+                    ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/40 scale-105'
+                    : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                <Mic className="w-8 h-8" />
+              </div>
+            </div>
+
+            {/* Status e Transcrição em Tempo Real */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-bold text-slate-800">
+                {isListening ? 'Ouvindo... Fale agora' : 'Processando fala...'}
+              </h4>
+              <div className="min-h-16 p-3 bg-slate-50 border border-slate-200/60 rounded-xl text-xs text-slate-700 flex items-center justify-center text-center">
+                {liveTranscript ? (
+                  <span className="font-semibold text-slate-900">"{liveTranscript}"</span>
+                ) : (
+                  <span className="text-slate-400 italic">
+                    Diga por exemplo: "Gastei 50 reais no mercado hoje" ou "Recebi 200 de um freelance"
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {speechError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2 text-left">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{speechError}</span>
+              </div>
+            )}
+
+            {/* Botões de Controle */}
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  stopListening();
+                  setShowVoiceModal(false);
+                }}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+              {isListening ? (
+                <button
+                  type="button"
+                  onClick={() => stopListening()}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 shadow-xs"
+                >
+                  Concluir
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => startListening()}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700 shadow-xs"
+                >
+                  Ouvir Novamente
+                </button>
+              )}
             </div>
           </div>
         </div>
