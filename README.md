@@ -16,7 +16,7 @@ Aplicativo progressivo (PWA) para gestão pessoal de foco, treinos, hábitos e f
 ### 1. Dashboard Integrado
 Visão unificada das principais áreas do dia: sessões de foco acumuladas, status dos treinos, conclusão de hábitos da rotina, resumo financeiro rápido e nível de disciplina gamificado.
 
-### 2. Câmara de Foco (Pomodoro & Deep Work)
+### 2. Timer de Foco (Pomodoro & Deep Work)
 - Modos pré-configurados: Pomodoro (25 min), Deep Work (50 min) e Modo 5 Minutos.
 - Cronômetro calculado por timestamps reais em UTC, mantendo a contagem exata mesmo com a tela do celular bloqueada ou ao trocar de aba.
 - Alertas sonoros e vibração ao término de cada bloco e intervalo.

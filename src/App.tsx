@@ -492,7 +492,7 @@ export function App() {
             }`}
           >
             <Zap className="w-5 h-5 text-amber-500" />
-            Câmara de Foco
+            Foco
             {timerState.status === 'running' && (
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping ml-auto" />
             )}
@@ -653,7 +653,7 @@ export function App() {
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
                     <span className="text-[11px] uppercase tracking-widest font-extrabold text-indigo-200">
-                      Câmara de Foco Ativa ({timerState.mode})
+                      Sessão de Foco Ativa ({timerState.mode})
                     </span>
                   </div>
                   <div className="text-4xl font-mono font-black tracking-tight mt-1">
@@ -665,7 +665,7 @@ export function App() {
                   onClick={() => setActiveTab('focus')}
                   className="bg-white text-indigo-700 font-black px-5 py-2.5 rounded-xl shadow-xs text-sm hover:bg-indigo-50 transition active:scale-95"
                 >
-                  Entrar na Câmara
+                  Abrir Foco
                 </button>
               </div>
             )}
@@ -870,11 +870,11 @@ export function App() {
           </div>
         )}
 
-        {/* TAB: CÂMARA DE FOCO */}
+        {/* TAB: FOCO (POMODORO & DEEP WORK) */}
         {activeTab === 'focus' && (
           <div className="max-w-xl mx-auto space-y-6 text-center">
             <header>
-              <h2 className="text-2xl font-black text-slate-900">Câmara de Foco Profundo</h2>
+              <h2 className="text-2xl font-black text-slate-900">Timer de Foco</h2>
               <p className="text-xs text-slate-500 mt-1">
                 Conclua a sessão para receber +XP e avançar seu nível de maestria.
               </p>
