@@ -32,6 +32,7 @@ import {
 
 import { HabitsCard } from './components/HabitsCard';
 import { HabitsSection } from './components/HabitsSection';
+import { FinanceCard } from './components/FinanceCard';
 import { FinanceSection } from './components/FinanceSection';
 import { StudySection } from './components/StudySection';
 import { WeeklyReportCard } from './components/WeeklyReportCard';
@@ -620,8 +621,9 @@ export function App() {
               onStartFocusToday={() => prepareTimer('pomodoro')}
             />
 
-            {/* Grid: Meus Hábitos & Resumo da Semana */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Grid: Financeiro, Meus Hábitos & Resumo da Semana */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <FinanceCard onOpenFinancePage={() => setActiveTab('finance')} />
               <HabitsCard
                 habits={habits}
                 habitLogs={habitLogs}
