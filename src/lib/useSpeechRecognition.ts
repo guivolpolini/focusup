@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-// Declaração tipada para Web Speech API
 interface IWindowSpeechRecognition extends Window {
   SpeechRecognition?: any;
   webkitSpeechRecognition?: any;
@@ -24,7 +23,7 @@ export function useSpeechRecognition(options?: {
   const [error, setError] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
-  const finalTranscriptRef = useRef<string>('');
+  const latestTranscriptRef = useRef<string>('');
   const onFinalResultRef = useRef(options?.onFinalResult);
 
   useEffect(() => {
@@ -38,27 +37,40 @@ export function useSpeechRecognition(options?: {
   const resetTranscript = useCallback(() => {
     setTranscript('');
     setError(null);
-    finalTranscriptRef.current = '';
+    latestTranscriptRef.current = '';
+  }, []);
+
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // Ignora se já estiver finalizado
+      }
+    }
+    setIsListening(false);
   }, []);
 
   const startListening = useCallback(() => {
     if (!SpeechRecognitionClass) {
-      setError('Seu navegador não suporta reconhecimento de voz.');
+      setError('Seu navegador não oferece suporte nativo à Web Speech API.');
       return;
     }
 
     try {
       if (recognitionRef.current) {
-        recognitionRef.current.abort();
+        try {
+          recognitionRef.current.abort();
+        } catch {}
       }
 
       const recognition = new SpeechRecognitionClass();
       recognition.lang = 'pt-BR';
-      recognition.continuous = false;
+      recognition.continuous = true;
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
 
-      finalTranscriptRef.current = '';
+      latestTranscriptRef.current = '';
       setTranscript('');
       setError(null);
 
@@ -67,35 +79,29 @@ export function useSpeechRecognition(options?: {
       };
 
       recognition.onresult = (event: any) => {
-        let interimText = '';
-        let currentFinal = '';
-
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const result = event.results[i];
-          const text = result[0].transcript;
-          if (result.isFinal) {
-            currentFinal += text;
-          } else {
-            interimText += text;
+        let fullText = '';
+        for (let i = 0; i < event.results.length; i++) {
+          const item = event.results[i];
+          if (item && item[0]) {
+            fullText += (fullText ? ' ' : '') + item[0].transcript.trim();
           }
         }
 
-        if (currentFinal) {
-          finalTranscriptRef.current += (finalTranscriptRef.current ? ' ' : '') + currentFinal.trim();
-        }
-
-        const display = finalTranscriptRef.current + (interimText ? ` ${interimText}` : '');
-        setTranscript(display.trim());
+        const trimmed = fullText.trim();
+        latestTranscriptRef.current = trimmed;
+        setTranscript(trimmed);
       };
 
       recognition.onerror = (event: any) => {
         let msg = 'Erro no reconhecimento de voz.';
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          msg = 'Permissão para usar o microfone foi negada no navegador.';
+          msg = 'Permissão de microfone negada. Permita o microfone nas configurações do navegador.';
         } else if (event.error === 'no-speech') {
-          msg = 'Nenhuma fala detectada. Toque no microfone e tente falar novamente.';
+          msg = 'Nenhum som detectado. Fale mais próximo do microfone.';
         } else if (event.error === 'network') {
           msg = 'Falha de conexão com o serviço de reconhecimento de voz.';
+        } else if (event.error === 'audio-capture') {
+          msg = 'Microfone não encontrado ou ocupado por outro aplicativo.';
         }
         setError(msg);
         setIsListening(false);
@@ -103,29 +109,24 @@ export function useSpeechRecognition(options?: {
 
       recognition.onend = () => {
         setIsListening(false);
-        const text = finalTranscriptRef.current.trim();
-        if (text && onFinalResultRef.current) {
-          onFinalResultRef.current(text);
-        }
       };
 
       recognitionRef.current = recognition;
       recognition.start();
     } catch (err: any) {
-      setError('Não foi possível iniciar o microfone.');
+      setError('Falha ao iniciar o microfone no navegador.');
       setIsListening(false);
     }
   }, [SpeechRecognitionClass]);
 
-  const stopListening = useCallback(() => {
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch {
-        // Ignora se já estiver parado
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
       }
-    }
-    setIsListening(false);
+    };
   }, []);
 
   return {

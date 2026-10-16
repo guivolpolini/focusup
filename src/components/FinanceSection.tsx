@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   Wallet,
@@ -146,15 +146,43 @@ export function FinanceSection() {
   const handleCurrentMonth = () => setCurrentMonthKey(getMonthKey());
 
   // Processamento de Comando de Voz
-  const handleVoiceFinal = (finalText: string) => {
-    setShowVoiceModal(false);
-    if (!finalText.trim()) return;
+  const [voiceInput, setVoiceInput] = useState('');
+  const [voiceParsingError, setVoiceParsingError] = useState<string | null>(null);
 
-    const parsed = parseVoiceFinanceCommand(finalText, categories, cards);
-    if (parsed.amountInCents === 0) {
-      alert(`Reconhecemos: "${finalText}", mas não identificamos o valor em reais. Tente falar novamente mencionando o valor (ex: "Gastei 50 reais no mercado").`);
+  const {
+    isSupported: isSpeechSupported,
+    isListening,
+    transcript: liveTranscript,
+    error: speechError,
+    startListening,
+    stopListening,
+    resetTranscript,
+  } = useSpeechRecognition();
+
+  // Sincroniza fala capturada em tempo real para o campo editável
+  useEffect(() => {
+    if (liveTranscript) {
+      setVoiceInput(liveTranscript);
+      setVoiceParsingError(null);
+    }
+  }, [liveTranscript]);
+
+  const handleVoiceFinal = (rawText: string) => {
+    const text = rawText.trim();
+    if (!text) {
+      setVoiceParsingError('Nenhum texto detectado. Fale ou digite o comando antes de continuar.');
       return;
     }
+
+    const parsed = parseVoiceFinanceCommand(text, categories, cards);
+    if (parsed.amountInCents === 0) {
+      setVoiceParsingError(`Não identificamos o valor em reais em: "${text}". Tente informar o valor (ex: "Gastei 50 reais no mercado").`);
+      return;
+    }
+
+    stopListening();
+    setShowVoiceModal(false);
+    setVoiceParsingError(null);
 
     setEditingTransaction(null);
     setTxType(parsed.type);
@@ -165,30 +193,18 @@ export function FinanceSection() {
     setTxPaymentMethod(parsed.paymentMethod);
     setTxCardId(parsed.cardId || (cards[0]?.id || ''));
     setTxInstallments(parsed.totalInstallments);
-    setVoiceOriginText(finalText);
+    setVoiceOriginText(text);
     setShowTransactionModal(true);
   };
 
-  const {
-    isSupported: isSpeechSupported,
-    isListening,
-    transcript: liveTranscript,
-    error: speechError,
-    startListening,
-    stopListening,
-    resetTranscript,
-  } = useSpeechRecognition({
-    onFinalResult: handleVoiceFinal,
-  });
-
   const handleStartVoice = () => {
-    if (!isSpeechSupported) {
-      alert('Seu navegador não suporta reconhecimento de voz Web Speech API. Use o cadastro manual.');
-      return;
-    }
+    setVoiceInput('');
+    setVoiceParsingError(null);
     resetTranscript();
     setShowVoiceModal(true);
-    startListening();
+    if (isSpeechSupported) {
+      startListening();
+    }
   };
 
   // Abertura de Modal de Transação (Nova ou Edição)
@@ -1538,12 +1554,13 @@ export function FinanceSection() {
       {/* ============================================================ */}
       {showVoiceModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl text-center space-y-5">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl text-center space-y-4">
             <div className="flex justify-between items-center">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Comando de Voz
+                Comando por Voz
               </span>
               <button
+                type="button"
                 onClick={() => {
                   stopListening();
                   setShowVoiceModal(false);
@@ -1559,42 +1576,105 @@ export function FinanceSection() {
               {isListening && (
                 <div className="absolute inset-0 rounded-full bg-rose-500/20 animate-ping" />
               )}
-              <div
-                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${
+              <button
+                type="button"
+                onClick={() => {
+                  if (isListening) {
+                    stopListening();
+                  } else if (isSpeechSupported) {
+                    resetTranscript();
+                    startListening();
+                  }
+                }}
+                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                   isListening
                     ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/40 scale-105'
-                    : 'bg-slate-100 text-slate-600'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
+                title={isListening ? 'Clique para pausar microfone' : 'Clique para falar'}
               >
                 <Mic className="w-8 h-8" />
+              </button>
+            </div>
+
+            {/* Status e Campo de Texto Interativo */}
+            <div className="space-y-2 text-left">
+              <div className="text-center">
+                <h4 className="text-sm font-bold text-slate-800">
+                  {isListening
+                    ? 'Ouvindo... Fale agora'
+                    : voiceInput
+                    ? 'Texto capturado'
+                    : isSpeechSupported
+                    ? 'Toque no microfone e fale'
+                    : 'Digite o comando financeiro'}
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  {isListening
+                    ? 'Diga o valor, onde gastou e forma de pagamento'
+                    : 'Você pode falar ou ajustar o texto diretamente'}
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <textarea
+                  value={voiceInput}
+                  onChange={(e) => {
+                    setVoiceInput(e.target.value);
+                    setVoiceParsingError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleVoiceFinal(voiceInput);
+                    }
+                  }}
+                  placeholder='Ex: "Gastei 50 reais no mercado hoje" ou "Recebi 200 de freelance no Pix"'
+                  rows={3}
+                  className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 resize-none font-medium text-slate-800"
+                />
               </div>
             </div>
 
-            {/* Status e Transcrição em Tempo Real */}
-            <div className="space-y-2">
-              <h4 className="text-sm font-bold text-slate-800">
-                {isListening ? 'Ouvindo... Fale agora' : 'Processando fala...'}
-              </h4>
-              <div className="min-h-16 p-3 bg-slate-50 border border-slate-200/60 rounded-xl text-xs text-slate-700 flex items-center justify-center text-center">
-                {liveTranscript ? (
-                  <span className="font-semibold text-slate-900">"{liveTranscript}"</span>
-                ) : (
-                  <span className="text-slate-400 italic">
-                    Diga por exemplo: "Gastei 50 reais no mercado hoje" ou "Recebi 200 de um freelance"
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {speechError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2 text-left">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>{speechError}</span>
+            {/* Alerta de Erro de Reconhecimento ou Validação */}
+            {(speechError || voiceParsingError) && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-start gap-2 text-left">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span className="leading-tight">{voiceParsingError || speechError}</span>
               </div>
             )}
 
-            {/* Botões de Controle */}
-            <div className="flex gap-2 pt-2">
+            {/* Exemplos Rápidos */}
+            {!voiceInput && (
+              <div className="text-left bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Exemplos para testar:
+                </p>
+                <div className="space-y-1">
+                  {[
+                    'Gastei 50 reais no mercado hoje',
+                    'Paguei 35 de Uber no Pix',
+                    'Recebi 1200 de salário',
+                    'Tênis 240 em 3x no cartão de crédito',
+                  ].map((ex) => (
+                    <button
+                      key={ex}
+                      type="button"
+                      onClick={() => {
+                        setVoiceInput(ex);
+                        setVoiceParsingError(null);
+                      }}
+                      className="block w-full text-left text-[11px] text-slate-600 hover:text-slate-900 hover:bg-white p-1 rounded transition-colors"
+                    >
+                      • "{ex}"
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Botões de Ação */}
+            <div className="flex gap-2 pt-1">
               <button
                 type="button"
                 onClick={() => {
@@ -1605,23 +1685,14 @@ export function FinanceSection() {
               >
                 Cancelar
               </button>
-              {isListening ? (
-                <button
-                  type="button"
-                  onClick={() => stopListening()}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 shadow-xs"
-                >
-                  Concluir
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => startListening()}
-                  className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700 shadow-xs"
-                >
-                  Ouvir Novamente
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => handleVoiceFinal(voiceInput)}
+                disabled={!voiceInput.trim()}
+                className="flex-1 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+              >
+                Processar
+              </button>
             </div>
           </div>
         </div>
