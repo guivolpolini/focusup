@@ -30,7 +30,7 @@ import {
   ArrowRight,
   Sparkles,
 } from 'lucide-react';
-import { db, ensureDefaultFinanceCategories } from '../lib/db';
+import { db, ensureDefaultFinanceCategories, markCategoryAsDeleted } from '../lib/db';
 import {
   formatCentsToBRL,
   parseBRLToCents,
@@ -669,13 +669,27 @@ export function FinanceSection() {
   };
 
   const handleDeleteCategory = async (cat: FinanceCategory) => {
-    if (!cat.isCustom) {
-      alert('As categorias padrão do sistema não podem ser excluídas.');
+    // Garante que o usuário mantenha pelo menos uma categoria desse tipo
+    const remainingSameType = categories.filter((c) => c.type === cat.type && c.id !== cat.id);
+    if (remainingSameType.length === 0) {
+      alert(`Você não pode excluir todas as categorias de ${cat.type === 'expense' ? 'despesa' : 'receita'}. Mantenha pelo menos uma ativa.`);
       return;
     }
-    if (confirm(`Deseja excluir a categoria personalizada "${cat.name}"?`)) {
-      await db.financeCategories.delete(cat.id);
+
+    const isDefault = !cat.isCustom;
+    const msg = isDefault
+      ? `Deseja realmente excluir a categoria padrão "${cat.name}"? Seus lançamentos existentes continuarão seguros no histórico. Você poderá restaurá-la a qualquer momento clicando em "Restaurar categorias padrão".`
+      : `Deseja excluir a categoria personalizada "${cat.name}"? Seus lançamentos existentes continuarão seguros no histórico.`;
+
+    if (!confirm(msg)) {
+      return;
     }
+
+    // Registra como excluída para não recriar no reload
+    markCategoryAsDeleted(cat.id);
+
+    // Remove do IndexedDB
+    await db.financeCategories.delete(cat.id);
   };
 
   // Processar Upload de CSV com Categorização Inteligente por Linha
@@ -3476,16 +3490,14 @@ export function FinanceSection() {
                         )}
                       </div>
 
-                      {c.isCustom && (
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteCategory(c)}
-                          title="Excluir categoria personalizada"
-                          className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCategory(c)}
+                        title={`Excluir categoria "${c.name}"`}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   ))}
               </div>
@@ -3495,11 +3507,13 @@ export function FinanceSection() {
               <button
                 type="button"
                 onClick={async () => {
-                  await ensureDefaultFinanceCategories();
+                  if (confirm('Deseja restaurar todas as categorias padrão originais? Suas categorias personalizadas continuarão intactas.')) {
+                    await ensureDefaultFinanceCategories(true);
+                  }
                 }}
-                className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800"
+                className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline"
               >
-                ✨ Sincronizar categorias padrão
+                ✨ Restaurar categorias padrão
               </button>
               <button
                 type="button"

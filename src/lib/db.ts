@@ -455,17 +455,66 @@ export async function seedGymInitialData(force = false) {
   }
 }
 
+const DELETED_CATEGORIES_KEY = 'focusup_deleted_finance_categories';
+
+/**
+ * Retorna os IDs das categorias que o usuário optou por excluir explicitamente
+ */
+export function getDeletedCategoryIds(): Set<string> {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(DELETED_CATEGORIES_KEY) : null;
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Marca um ID de categoria como excluído para não re-inserir automaticamente no refresh
+ */
+export function markCategoryAsDeleted(id: string): void {
+  try {
+    if (typeof window === 'undefined') return;
+    const set = getDeletedCategoryIds();
+    set.add(id);
+    localStorage.setItem(DELETED_CATEGORIES_KEY, JSON.stringify(Array.from(set)));
+  } catch (err) {
+    console.error('Erro ao marcar categoria como excluída:', err);
+  }
+}
+
+/**
+ * Limpa o histórico de exclusões para permitir restaurar categorias padrão
+ */
+export function clearDeletedCategoryIds(): void {
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(DELETED_CATEGORIES_KEY);
+    }
+  } catch (err) {
+    console.error('Erro ao limpar categorias excluídas:', err);
+  }
+}
+
 /**
  * Garante que todas as categorias financeiras padrão do FocusUp estejam presentes no IndexedDB.
+ * Respeita as categorias que o usuário optou por excluir explicitamente (salvo se forceRestore === true).
  * Preserva 100% das categorias personalizadas criadas pelo usuário e não duplica nomes já existentes.
  */
-export async function ensureDefaultFinanceCategories(): Promise<void> {
+export async function ensureDefaultFinanceCategories(forceRestore = false): Promise<void> {
   try {
+    if (forceRestore) {
+      clearDeletedCategoryIds();
+    }
+    const deletedIds = forceRestore ? new Set<string>() : getDeletedCategoryIds();
     const existing = await db.financeCategories.toArray();
     const existingIds = new Set(existing.map((c) => c.id));
     const existingNames = new Set(existing.map((c) => c.name.toLowerCase().trim()));
 
     const missing = DEFAULT_FINANCE_CATEGORIES.filter((def) => {
+      if (deletedIds.has(def.id)) return false;
       if (existingIds.has(def.id)) return false;
       if (existingNames.has(def.name.toLowerCase().trim())) return false;
       return true;
