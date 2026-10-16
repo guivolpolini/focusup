@@ -94,7 +94,7 @@ export function FinanceSection() {
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Filtro da aba Gastos Fixos
-  const [recurringFilter, setRecurringFilter] = useState<'all' | 'pending' | 'paid' | 'paused'>('all');
+  const [recurringFilter, setRecurringFilter] = useState<'all' | 'pending' | 'credit' | 'paid' | 'paused'>('all');
 
   // Modais
   const [showTransactionModal, setShowTransactionModal] = useState<boolean>(false);
@@ -135,13 +135,21 @@ export function FinanceSection() {
     return getRecurringOccurrencesForMonth(recurringExpenses, transactions, currentMonthKey);
   }, [recurringExpenses, transactions, currentMonthKey]);
 
-  // Saldo Projetado = Saldo Atual (realizado) - Contas Fixas Pendentes do Mês
-  const projectedBalanceInCents = summary.estimatedBalanceInCents - recurringSummary.totalPendingInCents;
+  // Saldo Projetado = Saldo Atual (realizado) - Contas Fixas Pendentes Diretas do Mês (boletos/pix, exclui cartão)
+  const projectedBalanceInCents = summary.estimatedBalanceInCents - recurringSummary.totalPendingDirectInCents;
 
-  // Resumos dos Cartões
+  // Resumos dos Cartões (incorporando gastos fixos no cartão que caem na fatura)
   const cardsSummary = useMemo(() => {
-    return cards.map((card) => calculateCardSummary(card, transactions, `${currentMonthKey}-15`));
-  }, [cards, transactions, currentMonthKey]);
+    return cards.map((card) =>
+      calculateCardSummary(
+        card,
+        transactions,
+        `${currentMonthKey}-15`,
+        recurringSummary.occurrences,
+        cards.length
+      )
+    );
+  }, [cards, transactions, currentMonthKey, recurringSummary.occurrences]);
 
   const totalOpenInvoicesInCents = useMemo(() => {
     return cardsSummary.reduce((acc, cs) => acc + cs.currentInvoiceTotalInCents, 0);
@@ -202,7 +210,12 @@ export function FinanceSection() {
   const filteredOccurrences = useMemo(() => {
     return recurringSummary.occurrences.filter((occ) => {
       if (recurringFilter === 'all') return true;
-      if (recurringFilter === 'pending') return occ.status === 'pending' || occ.status === 'overdue';
+      if (recurringFilter === 'pending') {
+        return (occ.status === 'pending' || occ.status === 'overdue') && occ.paymentMethod !== 'credit';
+      }
+      if (recurringFilter === 'credit') {
+        return occ.paymentMethod === 'credit';
+      }
       if (recurringFilter === 'paid') return occ.status === 'paid';
       if (recurringFilter === 'paused') return occ.status === 'paused';
       return true;
@@ -1129,7 +1142,9 @@ export function FinanceSection() {
                   {formatCentsToBRL(recurringSummary.totalExpectedInCents)}
                 </div>
                 <span className="text-[11px] text-slate-400 mt-1 block">
-                  Pago: {formatCentsToBRL(recurringSummary.totalPaidInCents)}
+                  {recurringSummary.creditCount > 0
+                    ? `Pago: ${formatCentsToBRL(recurringSummary.totalPaidInCents)} • ${recurringSummary.creditCount} no cartão`
+                    : `Pago: ${formatCentsToBRL(recurringSummary.totalPaidInCents)}`}
                 </span>
               </div>
             </div>
@@ -1148,7 +1163,7 @@ export function FinanceSection() {
                 </span>
                 <span
                   className={`p-1.5 rounded-xl ${
-                    recurringSummary.overdueCount > 0
+                    recurringSummary.overdueDirectCount > 0
                       ? 'bg-rose-50 text-rose-600'
                       : 'bg-amber-50 text-amber-600'
                   }`}
@@ -1159,21 +1174,23 @@ export function FinanceSection() {
               <div>
                 <div
                   className={`text-xl font-bold ${
-                    recurringSummary.overdueCount > 0
+                    recurringSummary.overdueDirectCount > 0
                       ? 'text-rose-600'
-                      : recurringSummary.totalPendingInCents > 0
+                      : recurringSummary.totalPendingDirectInCents > 0
                       ? 'text-amber-600'
                       : 'text-emerald-600'
                   }`}
                 >
-                  {formatCentsToBRL(recurringSummary.totalPendingInCents)}
+                  {formatCentsToBRL(recurringSummary.totalPendingDirectInCents)}
                 </div>
                 <span className="text-[11px] text-slate-400 mt-1 block">
-                  {recurringSummary.pendingCount === 0
-                    ? 'Tudo em dia neste mês'
-                    : recurringSummary.overdueCount > 0
-                    ? `${recurringSummary.overdueCount} atrasada(s) • ${recurringSummary.pendingCount} total`
-                    : `${recurringSummary.pendingCount} conta(s) a pagar`}
+                  {recurringSummary.pendingDirectCount === 0
+                    ? recurringSummary.creditCount > 0
+                      ? 'Tudo em dia (fixos no cartão caem na fatura)'
+                      : 'Tudo em dia neste mês'
+                    : recurringSummary.overdueDirectCount > 0
+                    ? `${recurringSummary.overdueDirectCount} atrasada(s) • ${recurringSummary.pendingDirectCount} a pagar direto`
+                    : `${recurringSummary.pendingDirectCount} conta(s) a pagar direto`}
                 </span>
               </div>
             </div>
@@ -1395,16 +1412,16 @@ export function FinanceSection() {
                       </div>
                       <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-100">
                         <span className="text-[10px] uppercase font-bold text-amber-800 block">
-                          Pendente ({recurringSummary.pendingCount})
+                          A Pagar Direto ({recurringSummary.pendingDirectCount})
                         </span>
                         <span className="text-sm font-bold text-amber-800 mt-0.5 block">
-                          {formatCentsToBRL(recurringSummary.totalPendingInCents)}
+                          {formatCentsToBRL(recurringSummary.totalPendingDirectInCents)}
                         </span>
                       </div>
                     </div>
 
                     {/* Destaque do Próximo Vencimento */}
-                    {recurringSummary.nextDueOccurrence ? (
+                    {recurringSummary.nextDueOccurrence && recurringSummary.nextDueOccurrence.paymentMethod !== 'credit' ? (
                       <div
                         className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 ${
                           recurringSummary.nextDueOccurrence.status === 'overdue'
@@ -1424,7 +1441,7 @@ export function FinanceSection() {
                               {recurringSummary.nextDueOccurrence.status === 'overdue'
                                 ? 'Conta em Atraso'
                                 : recurringSummary.nextDueOccurrence.dueDate
-                                ? 'Próximo Vencimento'
+                                ? 'Próximo Vencimento Direto'
                                 : 'Gasto Fixo Mensal'}
                             </span>
                             <span className="text-xs font-semibold text-slate-600">
@@ -1448,9 +1465,22 @@ export function FinanceSection() {
                         </button>
                       </div>
                     ) : (
-                      <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        Todos os gastos fixos ativos deste mês já foram pagos!
+                      <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>
+                            {recurringSummary.totalExpectedInCents === 0
+                              ? 'Nenhum gasto fixo cadastrado'
+                              : recurringSummary.pendingDirectCount === 0 && recurringSummary.creditCount > 0
+                              ? 'Nenhuma conta avulsa pendente!'
+                              : 'Todos os gastos fixos ativos deste mês já foram pagos!'}
+                          </span>
+                        </div>
+                        {recurringSummary.pendingDirectCount === 0 && recurringSummary.creditCount > 0 && (
+                          <span className="text-[11px] font-normal text-indigo-700 bg-indigo-50 border border-indigo-200/60 px-2 py-0.5 rounded-lg">
+                            {recurringSummary.creditCount} no cartão (caem na fatura)
+                          </span>
+                        )}
                       </div>
                     )}
                   </>
@@ -1459,7 +1489,8 @@ export function FinanceSection() {
 
               <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
                 <span>
-                  {recurringSummary.paidCount} paga(s) • {recurringSummary.pendingCount} pendente(s)
+                  {recurringSummary.paidCount} paga(s) • {recurringSummary.pendingDirectCount} a pagar direto
+                  {recurringSummary.creditCount > 0 ? ` • ${recurringSummary.creditCount} na fatura do cartão` : ''}
                 </span>
                 <button
                   onClick={() => setActiveSubTab('recurring')}
@@ -1545,12 +1576,18 @@ export function FinanceSection() {
                         {item.kind === 'recurring' &&
                           item.recurringOccurrence &&
                           item.status !== 'paid' && (
-                            <button
-                              onClick={() => openPayOccurrenceModal(item.recurringOccurrence!)}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold"
-                            >
-                              Pagar
-                            </button>
+                            item.recurringOccurrence.paymentMethod === 'credit' ? (
+                              <span className="text-[10px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/60 px-2 py-0.5 rounded-md">
+                                Na Fatura
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => openPayOccurrenceModal(item.recurringOccurrence!)}
+                                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold"
+                              >
+                                Pagar
+                              </button>
+                            )
                           )}
                         {item.kind === 'card_invoice' && (
                           <button
@@ -2169,15 +2206,15 @@ export function FinanceSection() {
 
             <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
               <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider block">
-                Contas em Atraso
+                Contas em Atraso (Diretas)
               </span>
               <div className="text-2xl font-bold text-rose-600 mt-1">
-                {recurringSummary.overdueCount}
+                {recurringSummary.overdueDirectCount}
               </div>
               <span className="text-[11px] text-slate-400">
-                {recurringSummary.overdueCount > 0
-                  ? 'Atenção aos vencimentos ultrapassados'
-                  : 'Nenhuma conta fixa atrasada'}
+                {recurringSummary.overdueDirectCount > 0
+                  ? 'Atenção aos boletos/pix ultrapassados'
+                  : 'Nenhum boleto ou conta direta atrasada'}
               </span>
             </div>
           </div>
@@ -2188,7 +2225,8 @@ export function FinanceSection() {
               {(
                 [
                   { id: 'all', label: 'Todos do Mês' },
-                  { id: 'pending', label: 'Pendentes / Atrasados' },
+                  { id: 'pending', label: 'A Pagar Direto' },
+                  { id: 'credit', label: 'Na Fatura do Cartão' },
                   { id: 'paid', label: 'Pagos' },
                   { id: 'paused', label: 'Pausados' },
                 ] as const
@@ -2231,12 +2269,23 @@ export function FinanceSection() {
               <div className="py-14 text-center text-slate-400 space-y-2 p-4">
                 <Repeat className="w-8 h-8 mx-auto text-slate-300" />
                 <p className="text-sm font-medium text-slate-600">
-                  Nenhum gasto fixo encontrado para o filtro selecionado neste mês.
+                  {recurringFilter === 'pending' && recurringSummary.creditCount > 0
+                    ? 'Nenhuma conta avulsa pendente de pagamento direto!'
+                    : 'Nenhum gasto fixo encontrado para o filtro selecionado neste mês.'}
                 </p>
-                <p className="text-xs text-slate-400">
-                  Cadastre suas despesas recorrentes (Aluguel, Condomínio, Luz, Água, Internet,
-                  Academia, Streaming) para controlar os pagamentos mensais sem duplicidade.
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  {recurringFilter === 'pending' && recurringSummary.creditCount > 0
+                    ? `Seus ${recurringSummary.creditCount} gasto(s) fixo(s) no cartão já caem automaticamente na fatura consolidada.`
+                    : 'Cadastre suas despesas recorrentes (Aluguel, Condomínio, Luz, Água, Internet, Academia, Streaming) para controlar os pagamentos mensais sem duplicidade.'}
                 </p>
+                {recurringFilter === 'pending' && recurringSummary.creditCount > 0 && (
+                  <button
+                    onClick={() => setRecurringFilter('credit')}
+                    className="mt-2 text-xs font-semibold text-indigo-600 hover:underline inline-flex items-center gap-1"
+                  >
+                    <CreditCard className="w-3.5 h-3.5" /> Ver gastos na fatura do cartão
+                  </button>
+                )}
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
@@ -2258,14 +2307,20 @@ export function FinanceSection() {
                           className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
                             occ.status === 'paid'
                               ? 'bg-emerald-50 text-emerald-600'
-                              : occ.status === 'overdue'
-                              ? 'bg-rose-50 text-rose-600'
                               : occ.status === 'paused'
                               ? 'bg-slate-100 text-slate-400'
+                              : occ.paymentMethod === 'credit'
+                              ? 'bg-indigo-50 text-indigo-600'
+                              : occ.status === 'overdue'
+                              ? 'bg-rose-50 text-rose-600'
                               : 'bg-amber-50 text-amber-600'
                           }`}
                         >
-                          <Repeat className="w-5 h-5" />
+                          {occ.paymentMethod === 'credit' ? (
+                            <CreditCard className="w-5 h-5" />
+                          ) : (
+                            <Repeat className="w-5 h-5" />
+                          )}
                         </div>
 
                         <div className="space-y-1">
@@ -2275,19 +2330,23 @@ export function FinanceSection() {
                               className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
                                 occ.status === 'paid'
                                   ? 'bg-emerald-100 text-emerald-800'
-                                  : occ.status === 'overdue'
-                                  ? 'bg-rose-100 text-rose-700'
                                   : occ.status === 'paused'
                                   ? 'bg-slate-200 text-slate-600'
+                                  : occ.paymentMethod === 'credit'
+                                  ? 'bg-indigo-100 text-indigo-700'
+                                  : occ.status === 'overdue'
+                                  ? 'bg-rose-100 text-rose-700'
                                   : 'bg-amber-100 text-amber-800'
                               }`}
                             >
                               {occ.status === 'paid'
                                 ? 'Pago'
-                                : occ.status === 'overdue'
-                                ? 'Atrasado'
                                 : occ.status === 'paused'
                                 ? 'Pausado'
+                                : occ.paymentMethod === 'credit'
+                                ? 'Na Fatura'
+                                : occ.status === 'overdue'
+                                ? 'Atrasado'
                                 : 'Pendente'}
                             </span>
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
@@ -2345,10 +2404,23 @@ export function FinanceSection() {
                           {(occ.status === 'pending' || occ.status === 'overdue') && (
                             <button
                               onClick={() => openPayOccurrenceModal(occ)}
-                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-colors flex items-center gap-1"
+                              className={`px-3 py-1.5 rounded-xl text-white text-xs font-semibold shadow-xs transition-colors flex items-center gap-1 ${
+                                occ.paymentMethod === 'credit'
+                                  ? 'bg-indigo-600 hover:bg-indigo-700'
+                                  : 'bg-emerald-600 hover:bg-emerald-700'
+                              }`}
                             >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              Marcar Pago
+                              {occ.paymentMethod === 'credit' ? (
+                                <>
+                                  <CreditCard className="w-3.5 h-3.5" />
+                                  Lançar no Cartão
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  Marcar Pago
+                                </>
+                              )}
                             </button>
                           )}
 
@@ -2755,6 +2827,19 @@ export function FinanceSection() {
                         </span>
                       </div>
 
+                      {recurringSummary.totalCreditInCents > 0 && (
+                        <div className="flex justify-between items-center text-[11px] text-indigo-700 bg-indigo-50/70 border border-indigo-100 px-2.5 py-1 rounded-lg">
+                          <span>Gastos fixos nesta fatura:</span>
+                          <span className="font-semibold">
+                            {formatCentsToBRL(
+                              recurringSummary.occurrences
+                                .filter((o) => o.paymentMethod === 'credit' && (o.cardId === card.id || (!o.cardId && cards.length === 1)))
+                                .reduce((acc, o) => acc + (o.status === 'paid' ? (o.paidAmountInCents ?? o.expectedAmountInCents) : o.expectedAmountInCents), 0)
+                            )}
+                          </span>
+                        </div>
+                      )}
+
                       <div className="flex justify-between items-center text-xs">
                         <span className="text-slate-500">Próxima Fatura:</span>
                         <span className="font-semibold text-slate-700">
@@ -3031,7 +3116,11 @@ export function FinanceSection() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900">Confirmar Pagamento</h3>
+              <h3 className="text-base font-bold text-slate-900">
+                {payingOccurrence.paymentMethod === 'credit'
+                  ? 'Confirmar Lançamento no Cartão'
+                  : 'Confirmar Pagamento'}
+              </h3>
               <button
                 onClick={() => setPayingOccurrence(null)}
                 className="text-slate-400 hover:text-slate-600"
@@ -3046,12 +3135,19 @@ export function FinanceSection() {
                 {payingOccurrence.dueDate ? `Vencimento: ${formatDateBR(payingOccurrence.dueDate)} • ` : 'Sem vencimento fixo • '}Valor previsto:{' '}
                 {formatCentsToBRL(payingOccurrence.expectedAmountInCents)}
               </div>
+              {payingOccurrence.paymentMethod === 'credit' && (
+                <div className="text-[11px] text-indigo-700 font-medium pt-1">
+                  💳 Este gasto será contabilizado na fatura do seu cartão de crédito.
+                </div>
+              )}
             </div>
 
             <form onSubmit={handleConfirmOccurrencePayment} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Valor Efetivamente Pago (R$) *
+                  {payingOccurrence.paymentMethod === 'credit'
+                    ? 'Valor a Lançar na Fatura (R$) *'
+                    : 'Valor Efetivamente Pago (R$) *'}
                 </label>
                 <input
                   type="text"
@@ -3064,7 +3160,9 @@ export function FinanceSection() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Data do Pagamento *
+                  {payingOccurrence.paymentMethod === 'credit'
+                    ? 'Data da Cobrança no Cartão *'
+                    : 'Data do Pagamento *'}
                 </label>
                 <input
                   type="date"
@@ -3085,10 +3183,23 @@ export function FinanceSection() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-xs"
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 shadow-xs ${
+                    payingOccurrence.paymentMethod === 'credit'
+                      ? 'bg-indigo-600 hover:bg-indigo-700'
+                      : 'bg-emerald-600 hover:bg-emerald-700'
+                  }`}
                 >
-                  <CheckCircle2 className="w-4 h-4" />
-                  Confirmar Baixa
+                  {payingOccurrence.paymentMethod === 'credit' ? (
+                    <>
+                      <CreditCard className="w-4 h-4" />
+                      Confirmar no Cartão
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      Confirmar Baixa
+                    </>
+                  )}
                 </button>
               </div>
             </form>

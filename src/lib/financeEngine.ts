@@ -300,7 +300,9 @@ export interface CardInvoiceSummary {
 export function calculateCardSummary(
   card: FinanceCard,
   transactions: FinanceTransaction[],
-  referenceDate?: string
+  referenceDate?: string,
+  recurringOccurrences?: RecurringOccurrence[],
+  totalCardsCount?: number
 ): CardInvoiceSummary {
   const ref = referenceDate || new Date().toISOString().slice(0, 10);
   const currentInvoiceMonth = calculateInvoiceMonth(ref, card.closingDay);
@@ -324,6 +326,33 @@ export function calculateCardSummary(
       futureInstallmentsTotalInCents += tx.amountInCents;
     } else if (inv > currentInvoiceMonth) {
       futureInstallmentsTotalInCents += tx.amountInCents;
+    }
+  }
+
+  // Se houver ocorrências fixas cadastradas para cair no cartão que ainda não foram marcadas como pagas (sem transação explícita)
+  if (recurringOccurrences && recurringOccurrences.length > 0) {
+    for (const occ of recurringOccurrences) {
+      if (occ.status === 'paused' || occ.status === 'paid') continue;
+      if (occ.paymentMethod !== 'credit') continue;
+
+      const belongsToThisCard =
+        occ.cardId === card.id || (!occ.cardId && (totalCardsCount === 1 || !totalCardsCount));
+
+      if (!belongsToThisCard) continue;
+
+      const inv = occ.dueDate
+        ? calculateInvoiceMonth(occ.dueDate, card.closingDay)
+        : currentInvoiceMonth;
+
+      if (inv === currentInvoiceMonth) {
+        currentInvoiceTotalInCents += occ.expectedAmountInCents;
+        transactionsCount++;
+      } else if (inv === nextInvoiceMonth) {
+        nextInvoiceTotalInCents += occ.expectedAmountInCents;
+        futureInstallmentsTotalInCents += occ.expectedAmountInCents;
+      } else if (inv > currentInvoiceMonth) {
+        futureInstallmentsTotalInCents += occ.expectedAmountInCents;
+      }
     }
   }
 
@@ -794,10 +823,17 @@ export interface MonthlyRecurringSummary {
   occurrences: RecurringOccurrence[];
   totalExpectedInCents: number; // Previsto total ativo (pagas + pendentes/atrasadas)
   totalPaidInCents: number;
-  totalPendingInCents: number; // Soma de pendentes + atrasadas
+  totalPendingInCents: number; // Soma de pendentes + atrasadas (geral)
+  totalPendingDirectInCents: number; // Apenas contas a pagar diretamente (boleto, pix, debito em conta - exclui cartao)
+  totalCreditInCents: number; // Total previsto de gastos fixos no cartao de credito
+  totalPaidCreditInCents: number;
+  totalPendingCreditInCents: number;
   paidCount: number;
-  pendingCount: number; // Pendentes + atrasadas
+  pendingCount: number; // Pendentes + atrasadas (geral)
+  pendingDirectCount: number; // Contas pendentes a pagar direto
   overdueCount: number;
+  overdueDirectCount: number; // Contas atrasadas a pagar direto
+  creditCount: number; // Quantidade de fixos no cartao
   nextDueOccurrence: RecurringOccurrence | null;
 }
 
@@ -972,13 +1008,30 @@ export function getRecurringOccurrencesForMonth(
 
   let totalPaidInCents = 0;
   let totalPendingInCents = 0;
+  let totalPendingDirectInCents = 0;
+  let totalCreditInCents = 0;
+  let totalPaidCreditInCents = 0;
+  let totalPendingCreditInCents = 0;
   let paidCount = 0;
   let pendingCount = 0;
+  let pendingDirectCount = 0;
   let overdueCount = 0;
+  let overdueDirectCount = 0;
+  let creditCount = 0;
 
   for (const occ of occurrences) {
+    const isCredit = occ.paymentMethod === 'credit';
+    if (isCredit) {
+      creditCount++;
+      totalCreditInCents += occ.expectedAmountInCents;
+    }
+
     if (occ.status === 'paid') {
-      totalPaidInCents += occ.paidAmountInCents ?? occ.expectedAmountInCents;
+      const paidAmt = occ.paidAmountInCents ?? occ.expectedAmountInCents;
+      totalPaidInCents += paidAmt;
+      if (isCredit) {
+        totalPaidCreditInCents += paidAmt;
+      }
       paidCount++;
     } else if (occ.status === 'pending' || occ.status === 'overdue') {
       totalPendingInCents += occ.expectedAmountInCents;
@@ -986,11 +1039,26 @@ export function getRecurringOccurrencesForMonth(
       if (occ.status === 'overdue') {
         overdueCount++;
       }
+
+      if (isCredit) {
+        totalPendingCreditInCents += occ.expectedAmountInCents;
+      } else {
+        totalPendingDirectInCents += occ.expectedAmountInCents;
+        pendingDirectCount++;
+        if (occ.status === 'overdue') {
+          overdueDirectCount++;
+        }
+      }
     }
   }
 
   const totalExpectedInCents = totalPaidInCents + totalPendingInCents;
+
+  // Prioriza compromissos a pagar diretamente (boleto, pix, debito em conta) que exigem quitação pelo saldo
   const nextDueOccurrence =
+    occurrences.find((o) => o.paymentMethod !== 'credit' && (o.status === 'overdue' || o.status === 'pending') && !!o.dueDate) ||
+    occurrences.find((o) => o.paymentMethod !== 'credit' && (o.status === 'overdue' || o.status === 'pending')) ||
+    // Se todas forem no cartão, usa como referência informativa
     occurrences.find((o) => (o.status === 'overdue' || o.status === 'pending') && !!o.dueDate) ||
     occurrences.find((o) => o.status === 'pending') ||
     null;
@@ -1001,9 +1069,16 @@ export function getRecurringOccurrencesForMonth(
     totalExpectedInCents,
     totalPaidInCents,
     totalPendingInCents,
+    totalPendingDirectInCents,
+    totalCreditInCents,
+    totalPaidCreditInCents,
+    totalPendingCreditInCents,
     paidCount,
     pendingCount,
+    pendingDirectCount,
     overdueCount,
+    overdueDirectCount,
+    creditCount,
     nextDueOccurrence,
   };
 }
@@ -1245,6 +1320,10 @@ export function getUpcomingCommitments(
 
   for (const occ of recurringSummary.occurrences) {
     if (occ.status === 'paused') continue;
+    // Se o usuário possui cartões cadastrados e o gasto fixo cai no cartão de crédito,
+    // ele já é consolidado na fatura do cartão (evita duplicidade de compromissos a pagar)
+    if (occ.paymentMethod === 'credit' && cardsSummary.length > 0) continue;
+
     items.push({
       id: `comm_rec_${occ.occurrenceKey}`,
       kind: 'recurring',

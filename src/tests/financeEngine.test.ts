@@ -9,13 +9,15 @@ import {
   parseCSVTransactions,
   getRecurringOccurrencesForMonth,
   buildRecurringPaymentTransaction,
+  calculateCardSummary,
+  getUpcomingCommitments,
   calculateFixedVsVariable,
   calculatePreviousMonthComparison,
   calculateMonthlyEvolution,
   DEFAULT_FINANCE_CATEGORIES,
   inferCategoryFromDescription,
 } from '../lib/financeEngine';
-import type { FinanceTransaction, FinanceRecurringExpense } from '../types';
+import type { FinanceTransaction, FinanceRecurringExpense, FinanceCard } from '../types';
 
 describe('financeEngine', () => {
   describe('Formatação e conversão monetária BRL', () => {
@@ -321,6 +323,122 @@ describe('financeEngine', () => {
       expect(summaryPaid.pendingCount).toBe(0);
       expect(summaryPaid.totalPaidInCents).toBe(1990);
       expect(summaryPaid.totalPendingInCents).toBe(0);
+    });
+
+    it('separa gastos fixos no cartão de crédito das contas a pagar direto (sem poluir contas pendentes)', () => {
+      const mixedRecurrings: FinanceRecurringExpense[] = [
+        {
+          id: 'rec_aluguel',
+          name: 'Aluguel',
+          amountInCents: 180000, // R$ 1.800,00
+          categoryId: 'cat_moradia',
+          firstDueDate: '2026-10-10',
+          frequency: 'monthly',
+          paymentMethod: 'pix',
+          status: 'active',
+          createdAt: 1000,
+          updatedAt: 1000,
+        },
+        {
+          id: 'rec_netflix',
+          name: 'Netflix',
+          amountInCents: 5590, // R$ 55,90
+          categoryId: 'cat_assinaturas',
+          firstDueDate: '2026-10-12',
+          frequency: 'monthly',
+          paymentMethod: 'credit',
+          status: 'active',
+          createdAt: 1000,
+          updatedAt: 1000,
+        },
+        {
+          id: 'rec_spotify',
+          name: 'Spotify',
+          amountInCents: 2190, // R$ 21,90
+          categoryId: 'cat_assinaturas',
+          firstDueDate: '2026-10-14',
+          frequency: 'monthly',
+          paymentMethod: 'credit',
+          status: 'active',
+          createdAt: 1000,
+          updatedAt: 1000,
+        },
+        {
+          id: 'rec_prime',
+          name: 'Amazon Prime',
+          amountInCents: 1990, // R$ 19,90
+          categoryId: 'cat_assinaturas',
+          frequency: 'monthly',
+          paymentMethod: 'credit',
+          status: 'active',
+          createdAt: 1000,
+          updatedAt: 1000,
+        },
+      ];
+
+      const summary = getRecurringOccurrencesForMonth(
+        mixedRecurrings,
+        [],
+        '2026-10',
+        '2026-10-15'
+      );
+
+      // Total geral previsto (180000 + 5590 + 2190 + 1990 = 189770)
+      expect(summary.totalExpectedInCents).toBe(189770);
+      expect(summary.totalPendingInCents).toBe(189770);
+      expect(summary.pendingCount).toBe(4);
+
+      // Métricas específicas de contas a pagar DIRETO (exclui cartão de crédito)
+      expect(summary.totalPendingDirectInCents).toBe(180000); // Apenas o aluguel
+      expect(summary.pendingDirectCount).toBe(1);
+      expect(summary.overdueDirectCount).toBe(1); // 10/10 < 15/10
+
+      // Métricas de gastos fixos no cartão
+      expect(summary.totalCreditInCents).toBe(9770); // 5590 + 2190 + 1990
+      expect(summary.creditCount).toBe(3);
+
+      // nextDueOccurrence prioriza o boleto direto a pagar, não as assinaturas do cartão
+      expect(summary.nextDueOccurrence?.recurringId).toBe('rec_aluguel');
+
+      // Teste de integração com Cartão de Crédito
+      const card: FinanceCard = {
+        id: 'card_nubank',
+        name: 'Nubank',
+        closingDay: 20,
+        dueDay: 27,
+        limitInCents: 500000,
+        isArchived: false,
+        createdAt: 1000,
+        updatedAt: 1000,
+      };
+
+      const cardSummary = calculateCardSummary(
+        card,
+        [],
+        '2026-10-15',
+        summary.occurrences,
+        1
+      );
+
+      // Fatura do cartão inclui automaticamente os R$ 97,70 dos gastos fixos no cartão
+      expect(cardSummary.currentInvoiceTotalInCents).toBe(9770);
+
+      // Teste de Próximos Vencimentos: consolida fixos de cartão na fatura, sem duplicação
+      const commitments = getUpcomingCommitments(
+        summary,
+        [cardSummary],
+        '2026-10',
+        '2026-10-15'
+      );
+
+      // Deve ter apenas 2 itens: Aluguel (recorrente direto) e Fatura Nubank (card_invoice)
+      expect(commitments).toHaveLength(2);
+      expect(commitments.some((c) => c.title === 'Aluguel' && c.kind === 'recurring')).toBe(true);
+      expect(commitments.some((c) => c.title === 'Fatura Nubank' && c.kind === 'card_invoice')).toBe(true);
+      // Nenhuma das 3 assinaturas avulsas no cartão aparece duplicada
+      expect(commitments.some((c) => c.title === 'Netflix')).toBe(false);
+      expect(commitments.some((c) => c.title === 'Spotify')).toBe(false);
+      expect(commitments.some((c) => c.title === 'Amazon Prime')).toBe(false);
     });
 
     it('calcula proporção Fixos vs Variáveis e evolução/comparativo mensal com precisão', () => {

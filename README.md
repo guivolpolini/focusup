@@ -6,7 +6,7 @@ Aplicativo progressivo (PWA) para gestão pessoal de foco, treinos, hábitos e f
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4-38bdf8.svg?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 [![PWA](https://img.shields.io/badge/PWA-Instalável%20%26%20Offline-4f46e5.svg?style=flat-square)](https://web.dev/progressive-web-apps/)
-[![Testes Automatizados](https://img.shields.io/badge/Testes-96%20passando-10b981.svg?style=flat-square)](https://vitest.dev)
+[![Testes Automatizados](https://img.shields.io/badge/Testes-97%20passando-10b981.svg?style=flat-square)](https://vitest.dev)
 [![Privacidade](https://img.shields.io/badge/Armazenamento-Local%20(IndexedDB)-f59e0b.svg?style=flat-square)]()
 
 ---
@@ -72,7 +72,7 @@ O app abre em modo tela cheia e continua acessível mesmo sem conexão à intern
 | Banco Local | Dexie.js (IndexedDB) |
 | Validação | Zod |
 | PWA / Cache | Vite PWA, Service Worker |
-| Testes | Vitest (96 testes unitários e de integração) |
+| Testes | Vitest (97 testes unitários e de integração) |
 | Áudio / Tátil | Web Audio API, Vibration API, Web Speech API |
 
 ---
