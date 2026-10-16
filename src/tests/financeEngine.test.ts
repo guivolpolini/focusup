@@ -12,6 +12,8 @@ import {
   calculateFixedVsVariable,
   calculatePreviousMonthComparison,
   calculateMonthlyEvolution,
+  DEFAULT_FINANCE_CATEGORIES,
+  inferCategoryFromDescription,
 } from '../lib/financeEngine';
 import type { FinanceTransaction, FinanceRecurringExpense } from '../types';
 
@@ -339,5 +341,56 @@ describe('financeEngine', () => {
       expect(evo.points).toHaveLength(3);
     });
   });
+
+  describe('Categorias Financeiras Padrão e Classificação Automática', () => {
+    it('fornece conjunto completo de categorias padrão sem exigir cadastro manual', () => {
+      expect(DEFAULT_FINANCE_CATEGORIES.length).toBeGreaterThanOrEqual(19);
+
+      const expenses = DEFAULT_FINANCE_CATEGORIES.filter((c) => c.type === 'expense');
+      const incomes = DEFAULT_FINANCE_CATEGORIES.filter((c) => c.type === 'income');
+
+      expect(expenses.some((c) => c.id === 'cat-mercado' && c.name === 'Mercado')).toBe(true);
+      expect(expenses.some((c) => c.id === 'cat-alimentacao' && c.name === 'Alimentação')).toBe(true);
+      expect(expenses.some((c) => c.id === 'cat-transporte' && c.name === 'Transporte')).toBe(true);
+      expect(expenses.some((c) => c.id === 'cat-moradia' && c.name === 'Moradia')).toBe(true);
+      expect(expenses.some((c) => c.id === 'cat-contas' && c.name === 'Contas & Serviços')).toBe(true);
+      expect(expenses.some((c) => c.id === 'cat-compras' && c.name === 'Compras')).toBe(true);
+      expect(expenses.some((c) => c.id === 'cat-saude' && c.name === 'Saúde & Farmácia')).toBe(true);
+      expect(expenses.some((c) => c.id === 'cat-academia' && c.name === 'Academia & Esporte')).toBe(true);
+      expect(expenses.some((c) => c.id === 'cat-assinaturas' && c.name === 'Assinaturas & Streaming')).toBe(true);
+      expect(expenses.some((c) => c.id === 'cat-lazer' && c.name === 'Lazer & Viagens')).toBe(true);
+      expect(expenses.some((c) => c.id === 'cat-educacao' && c.name === 'Educação')).toBe(true);
+      expect(expenses.some((c) => c.id === 'cat-cuidados-pessoais' && c.name === 'Cuidados Pessoais')).toBe(true);
+
+      expect(incomes.some((c) => c.id === 'cat-salario' && c.name === 'Salário')).toBe(true);
+      expect(incomes.some((c) => c.id === 'cat-freelance')).toBe(true);
+      expect(incomes.some((c) => c.id === 'cat-investimentos')).toBe(true);
+      expect(incomes.some((c) => c.id === 'cat-vendas')).toBe(true);
+      expect(incomes.some((c) => c.id === 'cat-reembolso')).toBe(true);
+    });
+
+    it('classifica despesas automaticamente usando as categorias padrão', () => {
+      const r1 = inferCategoryFromDescription('Pão de Açúcar Supermercado', 'expense', DEFAULT_FINANCE_CATEGORIES);
+      expect(r1.categoryId).toBe('cat-mercado');
+      expect(r1.matched).toBe(true);
+
+      const r2 = inferCategoryFromDescription('Ifood restaurante', 'expense', DEFAULT_FINANCE_CATEGORIES);
+      expect(r2.categoryId).toBe('cat-alimentacao');
+      expect(r2.matched).toBe(true);
+
+      const r3 = inferCategoryFromDescription('Enel Conta de Energia', 'expense', DEFAULT_FINANCE_CATEGORIES);
+      expect(r3.categoryId).toBe('cat-contas');
+      expect(r3.matched).toBe(true);
+
+      const r4 = inferCategoryFromDescription('Barbearia Vintage', 'expense', DEFAULT_FINANCE_CATEGORIES);
+      expect(r4.categoryId).toBe('cat-cuidados-pessoais');
+      expect(r4.matched).toBe(true);
+
+      const r5 = inferCategoryFromDescription('Salario Mensal Folha', 'income', DEFAULT_FINANCE_CATEGORIES);
+      expect(r5.categoryId).toBe('cat-salario');
+      expect(r5.matched).toBe(true);
+    });
+  });
 });
+
 

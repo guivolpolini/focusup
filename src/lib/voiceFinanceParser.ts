@@ -257,51 +257,65 @@ export function matchCategory(
 
   // Dicionário de intenção semântica
   const categoryKeywords: Record<string, string[]> = {
+    'cat-mercado': [
+      'mercado', 'supermercado', 'hortifruti', 'sacolao', 'sacolão', 'acougue', 'açougue', 'feira'
+    ],
     'cat-alimentacao': [
       'mercado', 'supermercado', 'comida', 'almoco', 'almoço', 'janta', 'jantar',
-      'lanche', 'cafe', 'café', 'padaria', 'restaurante', 'ifood', 'acougue', 'açougue',
-      'pizza', 'hamburguer', 'lanche', 'refeicao', 'refeição', 'pastel'
+      'lanche', 'cafe', 'café', 'padaria', 'restaurante', 'ifood',
+      'pizza', 'hamburguer', 'refeicao', 'refeição', 'pastel'
     ],
     'cat-transporte': [
       'uber', '99', 'taxi', 'táxi', 'onibus', 'ônibus', 'metro', 'metrô',
       'gasolina', 'combustivel', 'combustível', 'estacionamento', 'pedagio', 'pedágio',
       'posto', 'etanol', 'diesel', 'corrida'
     ],
-    'cat-lazer': [
-      'cinema', 'filme', 'show', 'festa', 'balada', 'bar', 'cerveja', 'chope',
-      'jogo', 'steam', 'game', 'viagem', 'praia', 'passeio', 'teatro'
+    'cat-moradia': [
+      'aluguel', 'condominio', 'condomínio', 'iptu', 'casa', 'faxina', 'reforma'
+    ],
+    'cat-contas': [
+      'luz', 'energia', 'agua', 'água', 'gas', 'gás', 'internet', 'celular', 'telefone', 'enel', 'sabesp'
+    ],
+    'cat-compras': [
+      'tenis', 'tênis', 'roupa', 'camisa', 'calca', 'calça', 'sapato', 'shopping',
+      'eletronico', 'eletrônico', 'celular', 'fone', 'notebook', 'mercado livre', 'shopee', 'amazon'
+    ],
+    'cat-saude': [
+      'farmacia', 'farmácia', 'drogaria', 'remedio', 'remédio', 'medico', 'médico',
+      'dentista', 'consulta', 'exame', 'hospital', 'remedios'
     ],
     'cat-academia': [
       'academia', 'musculacao', 'musculação', 'whey', 'creatina', 'suplemento',
       'crossfit', 'smartfit', 'treino', 'personal'
     ],
     'cat-assinaturas': [
-      'netflix', 'spotify', 'amazon', 'prime', 'youtube', 'apple', 'icloud',
+      'netflix', 'spotify', 'amazon prime', 'prime video', 'youtube', 'apple', 'icloud',
       'disney', 'hbo', 'max', 'chatgpt', 'assinatura', 'plano'
     ],
-    'cat-compras': [
-      'tenis', 'tênis', 'roupa', 'camisa', 'calca', 'calça', 'sapato', 'shopping',
-      'eletronico', 'eletrônico', 'celular', 'fone', 'notebook', 'mercado livre'
-    ],
-    'cat-moradia': [
-      'aluguel', 'condominio', 'condomínio', 'luz', 'energia', 'agua', 'água',
-      'gas', 'gás', 'internet', 'iptu', 'casa', 'faxina'
-    ],
-    'cat-saude': [
-      'farmacia', 'farmácia', 'drogaria', 'remedio', 'remédio', 'medico', 'médico',
-      'dentista', 'consulta', 'exame', 'hospital', 'remedios'
+    'cat-lazer': [
+      'cinema', 'filme', 'show', 'festa', 'balada', 'bar', 'cerveja', 'chope',
+      'jogo', 'steam', 'game', 'viagem', 'praia', 'passeio', 'teatro'
     ],
     'cat-educacao': [
       'faculdade', 'curso', 'livro', 'mensalidade', 'escola', 'aula', 'apostila'
     ],
+    'cat-cuidados-pessoais': [
+      'barbearia', 'barbeiro', 'salao', 'salão', 'cabelo', 'cabeleireiro', 'manicure', 'pedicure', 'perfume'
+    ],
     'cat-salario': [
-      'salario', 'salário', 'empresa', 'adiantamento', 'holerite'
+      'salario', 'salário', 'empresa', 'adiantamento', 'holerite', 'pro-labore'
     ],
     'cat-freelance': [
       'freela', 'freelance', 'projeto', 'bico', 'servico', 'serviço', 'consultoria'
     ],
     'cat-investimentos': [
       'investimento', 'dividendo', 'rendimento', 'renda', 'juros', 'cdb', 'fii'
+    ],
+    'cat-vendas': [
+      'vendi', 'venda', 'enjoei', 'desapego'
+    ],
+    'cat-reembolso': [
+      'reembolso', 'estorno', 'devolucao', 'devolução', 'cashback'
     ],
   };
 

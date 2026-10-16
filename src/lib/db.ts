@@ -24,6 +24,7 @@ import type {
   FinanceMonthlyBudget,
   FinanceRecurringExpense,
 } from '../types';
+import { DEFAULT_FINANCE_CATEGORIES } from './financeEngine';
 
 export class FocusUpDatabase extends Dexie {
   subjects!: Table<Subject, string>;
@@ -319,6 +320,9 @@ export async function seedInitialData() {
 
   // Semente da Seção Academia (Exercícios e Fichas Padrão)
   await seedGymInitialData(false);
+
+  // Categorias padrão de Finanças
+  await ensureDefaultFinanceCategories();
 }
 
 export async function seedGymInitialData(force = false) {
@@ -449,29 +453,28 @@ export async function seedGymInitialData(force = false) {
     };
     await db.gymPreferences.put(defaultGymPreferences);
   }
+}
 
-  // Categorias padrão de Finanças
-  const catCount = await db.financeCategories.count();
-  if (catCount === 0) {
-    const defaultCategories: FinanceCategory[] = [
-      // Despesas
-      { id: 'cat-alimentacao', name: 'Alimentação', type: 'expense', icon: 'Utensils' },
-      { id: 'cat-transporte', name: 'Transporte', type: 'expense', icon: 'Car' },
-      { id: 'cat-lazer', name: 'Lazer', type: 'expense', icon: 'PartyPopper' },
-      { id: 'cat-academia', name: 'Academia', type: 'expense', icon: 'Dumbbell' },
-      { id: 'cat-assinaturas', name: 'Assinaturas', type: 'expense', icon: 'CreditCard' },
-      { id: 'cat-compras', name: 'Compras', type: 'expense', icon: 'ShoppingBag' },
-      { id: 'cat-moradia', name: 'Moradia', type: 'expense', icon: 'Home' },
-      { id: 'cat-saude', name: 'Saúde', type: 'expense', icon: 'HeartPulse' },
-      { id: 'cat-educacao', name: 'Educação', type: 'expense', icon: 'GraduationCap' },
-      { id: 'cat-outros-despesa', name: 'Outros', type: 'expense', icon: 'MoreHorizontal' },
+/**
+ * Garante que todas as categorias financeiras padrão do FocusUp estejam presentes no IndexedDB.
+ * Preserva 100% das categorias personalizadas criadas pelo usuário e não duplica nomes já existentes.
+ */
+export async function ensureDefaultFinanceCategories(): Promise<void> {
+  try {
+    const existing = await db.financeCategories.toArray();
+    const existingIds = new Set(existing.map((c) => c.id));
+    const existingNames = new Set(existing.map((c) => c.name.toLowerCase().trim()));
 
-      // Receitas
-      { id: 'cat-salario', name: 'Salário', type: 'income', icon: 'Briefcase' },
-      { id: 'cat-freelance', name: 'Freelance', type: 'income', icon: 'Laptop' },
-      { id: 'cat-investimentos', name: 'Investimentos', type: 'income', icon: 'TrendingUp' },
-      { id: 'cat-outros-receita', name: 'Outras Receitas', type: 'income', icon: 'PlusCircle' },
-    ];
-    await db.financeCategories.bulkPut(defaultCategories);
+    const missing = DEFAULT_FINANCE_CATEGORIES.filter((def) => {
+      if (existingIds.has(def.id)) return false;
+      if (existingNames.has(def.name.toLowerCase().trim())) return false;
+      return true;
+    });
+
+    if (missing.length > 0) {
+      await db.financeCategories.bulkPut(missing);
+    }
+  } catch (err) {
+    console.error('Erro ao inicializar categorias financeiras padrão:', err);
   }
 }

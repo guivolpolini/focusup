@@ -45,7 +45,7 @@ import { WeeklyReportCard } from './components/WeeklyReportCard';
 import { WeeklyReportSection } from './components/WeeklyReportSection';
 import { getHabitLogForDate, getHabitStatusForDate } from './lib/habitEngine';
 import { GymSection } from './components/GymSection';
-import { db, seedInitialData } from './lib/db';
+import { db, seedInitialData, ensureDefaultFinanceCategories } from './lib/db';
 import {
   type ActiveTimerState,
   calculateTimerProgress,
@@ -167,6 +167,7 @@ export function App() {
   useEffect(() => {
     (async () => {
       await seedInitialData();
+      await ensureDefaultFinanceCategories();
       await cleanAndDeduplicateDatabaseSubjects();
       setNotifPermission(getNotificationPermissionStatus());
     })();

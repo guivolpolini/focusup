@@ -355,6 +355,34 @@ export interface ParsedCSVRow {
 }
 
 /**
+ * Categorias financeiras padrão do FocusUp disponíveis por padrão para todos os usuários
+ */
+export const DEFAULT_FINANCE_CATEGORIES: FinanceCategory[] = [
+  // Despesas (13 categorias essenciais)
+  { id: 'cat-alimentacao', name: 'Alimentação', type: 'expense', icon: 'Utensils', isCustom: false },
+  { id: 'cat-mercado', name: 'Mercado', type: 'expense', icon: 'ShoppingCart', isCustom: false },
+  { id: 'cat-transporte', name: 'Transporte', type: 'expense', icon: 'Car', isCustom: false },
+  { id: 'cat-moradia', name: 'Moradia', type: 'expense', icon: 'Home', isCustom: false },
+  { id: 'cat-contas', name: 'Contas & Serviços', type: 'expense', icon: 'Zap', isCustom: false },
+  { id: 'cat-compras', name: 'Compras', type: 'expense', icon: 'ShoppingBag', isCustom: false },
+  { id: 'cat-saude', name: 'Saúde & Farmácia', type: 'expense', icon: 'HeartPulse', isCustom: false },
+  { id: 'cat-academia', name: 'Academia & Esporte', type: 'expense', icon: 'Dumbbell', isCustom: false },
+  { id: 'cat-assinaturas', name: 'Assinaturas & Streaming', type: 'expense', icon: 'CreditCard', isCustom: false },
+  { id: 'cat-lazer', name: 'Lazer & Viagens', type: 'expense', icon: 'PartyPopper', isCustom: false },
+  { id: 'cat-educacao', name: 'Educação', type: 'expense', icon: 'GraduationCap', isCustom: false },
+  { id: 'cat-cuidados-pessoais', name: 'Cuidados Pessoais', type: 'expense', icon: 'Scissors', isCustom: false },
+  { id: 'cat-outros-despesa', name: 'Outros (Despesas)', type: 'expense', icon: 'MoreHorizontal', isCustom: false },
+
+  // Receitas (6 categorias essenciais)
+  { id: 'cat-salario', name: 'Salário', type: 'income', icon: 'Briefcase', isCustom: false },
+  { id: 'cat-freelance', name: 'Freelance & Serviços', type: 'income', icon: 'Laptop', isCustom: false },
+  { id: 'cat-investimentos', name: 'Investimentos & Rendimentos', type: 'income', icon: 'TrendingUp', isCustom: false },
+  { id: 'cat-vendas', name: 'Vendas', type: 'income', icon: 'Tag', isCustom: false },
+  { id: 'cat-reembolso', name: 'Reembolsos', type: 'income', icon: 'RotateCcw', isCustom: false },
+  { id: 'cat-outros-receita', name: 'Outras Receitas', type: 'income', icon: 'PlusCircle', isCustom: false },
+];
+
+/**
  * Normaliza texto para comparação sem acentos e em minúsculas
  */
 function normalizeText(text: string): string {
@@ -405,7 +433,7 @@ export function inferCategoryFromDescription(
   }
 
   // 2. Verifica se o próprio nome de alguma categoria personalizada do usuário aparece na descrição
-  // (ex: usuário criou categoria "Mercado" ou "Pet Shop")
+  // (ex: usuário criou categoria "Pet Shop", "Doações", etc.)
   for (const cat of pool) {
     const cn = normalizeText(cat.name);
     if (cn.length >= 3 && cn !== 'outros' && cn !== 'outras receitas' && normDesc.includes(cn)) {
@@ -417,18 +445,28 @@ export function inferCategoryFromDescription(
     const incomeRules: { id: string; nameHints: string[]; keywords: string[] }[] = [
       {
         id: 'cat-salario',
-        nameHints: ['salario', 'remuneracao'],
+        nameHints: ['salario', 'remuneracao', 'holerite'],
         keywords: ['salario', 'pagamento folha', 'adiantamento salarial', 'holerite', 'pro-labore', 'prolabore'],
       },
       {
         id: 'cat-freelance',
-        nameHints: ['freelance', 'freela', 'servico'],
+        nameHints: ['freelance', 'freela', 'servico', 'consultoria'],
         keywords: ['freelance', 'freela', 'consultoria', 'projeto', 'honorario', 'servico prestado'],
       },
       {
         id: 'cat-investimentos',
-        nameHints: ['investimento', 'rendimento', 'dividendo'],
-        keywords: ['dividendo', 'rendimento', 'jcp', 'tesouro', 'cdb', 'fii', 'resgate'],
+        nameHints: ['investimento', 'rendimento', 'dividendo', 'jcp'],
+        keywords: ['dividendo', 'rendimento', 'jcp', 'tesouro', 'cdb', 'fii', 'resgate', 'renda fixa'],
+      },
+      {
+        id: 'cat-vendas',
+        nameHints: ['venda', 'desapego', 'comercio'],
+        keywords: ['venda', 'enjoei', 'olx', 'mercado pago recebimento', 'pagamento recebido cliente'],
+      },
+      {
+        id: 'cat-reembolso',
+        nameHints: ['reembolso', 'estorno', 'devolucao'],
+        keywords: ['reembolso', 'estorno', 'devolucao', 'cashback', 'ajuste a credito'],
       },
     ];
 
@@ -440,24 +478,23 @@ export function inferCategoryFromDescription(
     }
   } else {
     // Regras de estabelecimentos para Despesas no Brasil
-    // Caso o usuário tenha uma categoria específica "Mercado", priorizamos estabelecimentos de supermercado nela
-    const customMercadoCat = pool.find((c) => normalizeText(c.name) === 'mercado' || normalizeText(c.name) === 'supermercado');
     const supermarketKeywords = [
       'mercado', 'supermercado', 'hipermercado', 'atacadao', 'assai', 'carrefour',
       'pao de acucar', 'minuto pao', 'extra ', 'oxxo', 'hirota', 'sonda', 'bem barato',
       'nagumo', 'coop', 'chama', 'barbosa', 'lopes', 'shibata', 'savegnago', 'oba ',
       'sacolao', 'hortifruti', 'swift', 'acougue', 'peixaria', 'emporio', 'mercearia',
     ];
-    if (customMercadoCat && supermarketKeywords.some((kw) => normDesc.includes(kw) || normHint.includes(kw))) {
-      return { categoryId: customMercadoCat.id, matched: true };
-    }
 
     const expenseRules: { id: string; nameHints: string[]; keywords: string[] }[] = [
       {
+        id: 'cat-mercado',
+        nameHints: ['mercado', 'supermercado', 'mercearia', 'hortifruti'],
+        keywords: supermarketKeywords,
+      },
+      {
         id: 'cat-alimentacao',
-        nameHints: ['alimenta', 'comida', 'restaurante', 'mercado'],
+        nameHints: ['alimenta', 'comida', 'restaurante'],
         keywords: [
-          ...supermarketKeywords,
           'ifd*', 'ifood', 'ifd ', 'rappi', 'ze delivery', 'aiqfome',
           'kfc', 'mcdonalds', 'mc donalds', 'arcos dourados', 'bk ', 'burger king', 'burguer',
           'outback', 'madero', 'jeronimo', 'habibs', 'subway', 'starbucks', 'dunkin',
@@ -535,13 +572,29 @@ export function inferCategoryFromDescription(
       },
       {
         id: 'cat-moradia',
-        nameHints: ['moradia', 'casa', 'aluguel', 'conta'],
+        nameHints: ['moradia', 'casa', 'aluguel', 'condominio'],
         keywords: [
-          'aluguel', 'quintoandar', 'quinto andar', 'imobiliaria', 'condominio',
-          'enel', 'eletropaulo', 'cpfl', 'edp ', 'cemig', 'copel', 'celesc', 'light', 'neoenergia',
-          'sabesp', 'copasa', 'sanepar', 'comgas', 'naturgy', 'ultragaz', 'consigaz', 'iptu',
+          'aluguel', 'quintoandar', 'quinto andar', 'imobiliaria', 'condominio', 'iptu',
           'leroy merlin', 'telhanorte', 'sodimac', 'c&c', 'tok&stok', 'tok stok', 'mobly',
           'madeiramadeira', 'camicado', 'precolandia', 'lavanderia',
+        ],
+      },
+      {
+        id: 'cat-contas',
+        nameHints: ['conta', 'servico', 'utilidade', 'energia', 'agua', 'luz', 'internet'],
+        keywords: [
+          'enel', 'eletropaulo', 'cpfl', 'edp ', 'cemig', 'copel', 'celesc', 'light', 'neoenergia',
+          'sabesp', 'copasa', 'sanepar', 'comgas', 'naturgy', 'ultragaz', 'consigaz',
+          'vivo', 'claro', 'tim ', 'oi ', 'algar', 'sky', 'net ', 'internet', 'banda larga',
+        ],
+      },
+      {
+        id: 'cat-cuidados-pessoais',
+        nameHints: ['cuidado', 'beleza', 'cabelo', 'barbearia', 'estetica'],
+        keywords: [
+          'barbearia', 'barbeiro', 'salao', 'salão', 'cabeleireiro', 'cabelo',
+          'manicure', 'pedicure', 'estetica', 'depilacao', 'sobrancelha', 'barba',
+          'boticario', 'o boticario', 'natura', 'quem disse',
         ],
       },
       {
