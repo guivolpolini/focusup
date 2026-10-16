@@ -10,8 +10,9 @@ export interface UseSpeechRecognitionReturn {
   isListening: boolean;
   transcript: string;
   error: string | null;
-  startListening: () => Promise<void>;
+  startListening: () => void;
   stopListening: () => void;
+  cancelListening: () => void;
   resetTranscript: () => void;
 }
 
@@ -24,6 +25,10 @@ export function useSpeechRecognition(options?: {
 
   const recognitionRef = useRef<any>(null);
   const latestTranscriptRef = useRef<string>('');
+  const wasCancelledRef = useRef<boolean>(false);
+  const hasEmittedFinalRef = useRef<boolean>(false);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onFinalResultRef = useRef(options?.onFinalResult);
 
   useEffect(() => {
@@ -34,13 +39,53 @@ export function useSpeechRecognition(options?: {
   const SpeechRecognitionClass = win?.SpeechRecognition || win?.webkitSpeechRecognition;
   const isSupported = Boolean(SpeechRecognitionClass);
 
+  const clearTimers = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    if (stopFallbackTimerRef.current) {
+      clearTimeout(stopFallbackTimerRef.current);
+      stopFallbackTimerRef.current = null;
+    }
+  }, []);
+
   const resetTranscript = useCallback(() => {
+    clearTimers();
     setTranscript('');
     setError(null);
     latestTranscriptRef.current = '';
+    hasEmittedFinalRef.current = false;
+  }, [clearTimers]);
+
+  const emitFinalIfReady = useCallback(() => {
+    if (wasCancelledRef.current || hasEmittedFinalRef.current) return;
+    const finalText = latestTranscriptRef.current.trim();
+    if (finalText) {
+      hasEmittedFinalRef.current = true;
+      onFinalResultRef.current?.(finalText);
+    }
   }, []);
 
+  const cancelListening = useCallback(() => {
+    wasCancelledRef.current = true;
+    clearTimers();
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch {
+        // Ignora
+      }
+      recognitionRef.current = null;
+    }
+    setIsListening(false);
+  }, [clearTimers]);
+
   const stopListening = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -48,45 +93,38 @@ export function useSpeechRecognition(options?: {
         // Ignora
       }
     }
-    setIsListening(false);
-  }, []);
+    // Fallback caso onend demore no navegador
+    stopFallbackTimerRef.current = setTimeout(() => {
+      setIsListening(false);
+      emitFinalIfReady();
+    }, 500);
+  }, [emitFinalIfReady]);
 
-  const startListening = useCallback(async () => {
+  const startListening = useCallback(() => {
     if (!SpeechRecognitionClass) {
       setError('Seu navegador não oferece suporte nativo à Web Speech API.');
       return;
     }
 
     try {
-      // 1. Tenta garantir a permissão do microfone via getUserMedia se disponível
-      if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          stream.getTracks().forEach((track) => track.stop());
-        } catch (permErr: any) {
-          if (permErr.name === 'NotAllowedError' || permErr.name === 'PermissionDeniedError') {
-            setError('Permissão de microfone negada. Permita o microfone no ícone de cadeado do navegador.');
-            setIsListening(false);
-            return;
-          }
-        }
-      }
-
-      // 2. Limpa instância anterior
+      clearTimers();
       if (recognitionRef.current) {
+        wasCancelledRef.current = true;
         try {
           recognitionRef.current.abort();
         } catch {}
         recognitionRef.current = null;
       }
 
+      const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
       const recognition = new SpeechRecognitionClass();
       recognition.lang = 'pt-BR';
-      // continuous = false garante compatibilidade com iOS WebKit e Android Chrome
-      recognition.continuous = false;
+      recognition.continuous = !isIOS;
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
 
+      wasCancelledRef.current = false;
+      hasEmittedFinalRef.current = false;
       latestTranscriptRef.current = '';
       setTranscript('');
       setError(null);
@@ -97,27 +135,54 @@ export function useSpeechRecognition(options?: {
       };
 
       recognition.onresult = (event: any) => {
-        let fullText = '';
+        let finalParts = '';
+        let interimParts = '';
+
         for (let i = 0; i < event.results.length; i++) {
           const item = event.results[i];
-          if (item && item[0]) {
-            fullText += (fullText ? ' ' : '') + item[0].transcript.trim();
+          if (!item || !item[0]) continue;
+          const piece = item[0].transcript.trim();
+          if (!piece) continue;
+
+          if (item.isFinal) {
+            finalParts += (finalParts ? ' ' : '') + piece;
+          } else {
+            interimParts += (interimParts ? ' ' : '') + piece;
           }
         }
 
-        const trimmed = fullText.trim();
-        latestTranscriptRef.current = trimmed;
-        setTranscript(trimmed);
+        const combined = [finalParts, interimParts].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+        if (combined) {
+          latestTranscriptRef.current = combined;
+          setTranscript(combined);
+          setError(null);
+
+          // Auto-finaliza após 2s de silêncio depois que o usuário já falou a frase
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+          }
+          silenceTimerRef.current = setTimeout(() => {
+            if (recognitionRef.current) {
+              try {
+                recognitionRef.current.stop();
+              } catch {}
+            }
+          }, 2000);
+        }
       };
 
       recognition.onerror = (event: any) => {
+        if (wasCancelledRef.current || event.error === 'aborted') {
+          setIsListening(false);
+          return;
+        }
         let msg = 'Erro no reconhecimento de voz.';
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
           msg = 'Permissão de microfone negada. Clique no cadeado da barra de endereço e permita o microfone.';
         } else if (event.error === 'no-speech') {
-          msg = 'Nenhum som detectado. Toque no microfone para falar novamente.';
+          msg = 'Nenhuma fala detectada pelo microfone. Verifique se o microfone correto está selecionado no navegador.';
         } else if (event.error === 'network') {
-          msg = 'Falha de conexão com o serviço de voz. Verifique sua conexão.';
+          msg = 'O navegador bloqueou o serviço de voz em nuvem (comum no Brave). Use Chrome/Edge ou digite abaixo.';
         } else if (event.error === 'audio-capture') {
           msg = 'Microfone não encontrado ou ocupado por outro aplicativo.';
         }
@@ -126,7 +191,15 @@ export function useSpeechRecognition(options?: {
       };
 
       recognition.onend = () => {
+        clearTimers();
         setIsListening(false);
+
+        if (wasCancelledRef.current) return;
+
+        const captured = latestTranscriptRef.current.trim();
+        if (captured) {
+          emitFinalIfReady();
+        }
       };
 
       recognitionRef.current = recognition;
@@ -135,17 +208,18 @@ export function useSpeechRecognition(options?: {
       setError('Falha ao iniciar o microfone no navegador.');
       setIsListening(false);
     }
-  }, [SpeechRecognitionClass]);
+  }, [SpeechRecognitionClass, clearTimers, emitFinalIfReady]);
 
   useEffect(() => {
     return () => {
+      clearTimers();
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
         } catch {}
       }
     };
-  }, []);
+  }, [clearTimers]);
 
   return {
     isSupported,
@@ -154,6 +228,7 @@ export function useSpeechRecognition(options?: {
     error,
     startListening,
     stopListening,
+    cancelListening,
     resetTranscript,
   };
 }

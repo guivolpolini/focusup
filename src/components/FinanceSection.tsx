@@ -149,24 +149,6 @@ export function FinanceSection() {
   const [voiceInput, setVoiceInput] = useState('');
   const [voiceParsingError, setVoiceParsingError] = useState<string | null>(null);
 
-  const {
-    isSupported: isSpeechSupported,
-    isListening,
-    transcript: liveTranscript,
-    error: speechError,
-    startListening,
-    stopListening,
-    resetTranscript,
-  } = useSpeechRecognition();
-
-  // Sincroniza fala capturada em tempo real para o campo editável
-  useEffect(() => {
-    if (liveTranscript) {
-      setVoiceInput(liveTranscript);
-      setVoiceParsingError(null);
-    }
-  }, [liveTranscript]);
-
   const handleVoiceFinal = (rawText: string) => {
     const text = rawText.trim();
     if (!text) {
@@ -180,7 +162,7 @@ export function FinanceSection() {
       return;
     }
 
-    stopListening();
+    cancelListening();
     setShowVoiceModal(false);
     setVoiceParsingError(null);
 
@@ -197,13 +179,40 @@ export function FinanceSection() {
     setShowTransactionModal(true);
   };
 
-  const handleToggleVoice = async () => {
+  const {
+    isSupported: isSpeechSupported,
+    isListening,
+    transcript: liveTranscript,
+    error: speechError,
+    startListening,
+    stopListening,
+    cancelListening,
+    resetTranscript,
+  } = useSpeechRecognition({
+    onFinalResult: (finalText) => {
+      setVoiceInput(finalText);
+      handleVoiceFinal(finalText);
+    },
+  });
+
+  // Sincroniza fala capturada em tempo real para o campo editável
+  useEffect(() => {
+    if (liveTranscript) {
+      setVoiceInput(liveTranscript);
+      setVoiceParsingError(null);
+    }
+  }, [liveTranscript]);
+
+  const handleToggleVoice = () => {
     if (isListening) {
       stopListening();
+      if (voiceInput.trim()) {
+        handleVoiceFinal(voiceInput);
+      }
     } else {
       setVoiceParsingError(null);
       resetTranscript();
-      await startListening();
+      startListening();
     }
   };
 
@@ -1569,7 +1578,7 @@ export function FinanceSection() {
               <button
                 type="button"
                 onClick={() => {
-                  stopListening();
+                  cancelListening();
                   setShowVoiceModal(false);
                 }}
                 className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
@@ -1603,36 +1612,42 @@ export function FinanceSection() {
                 </div>
               </div>
 
-              <div className="text-center">
+              <div className="text-center space-y-1">
                 <span className={`text-sm font-bold block ${isListening ? 'text-rose-600' : 'text-slate-800'}`}>
                   {isListening ? 'Ouvindo... Fale agora!' : 'Toque aqui para falar'}
                 </span>
-                <span className="text-[11px] text-slate-500 block mt-0.5">
-                  {isListening
-                    ? 'Toque para finalizar e processar'
-                    : 'Diga o valor, onde gastou e forma de pagamento'}
-                </span>
+                {liveTranscript && isListening ? (
+                  <span className="text-xs font-semibold text-rose-900 bg-white/80 px-2.5 py-1 rounded-lg border border-rose-200 block">
+                    "{liveTranscript}"
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-slate-500 block">
+                    {isListening
+                      ? 'Fale a frase completa — processa automaticamente ao pausar ou tocar aqui'
+                      : 'Diga o valor, onde gastou e forma de pagamento'}
+                  </span>
+                )}
               </div>
             </button>
 
-              <div className="space-y-1">
-                <textarea
-                  value={voiceInput}
-                  onChange={(e) => {
-                    setVoiceInput(e.target.value);
-                    setVoiceParsingError(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleVoiceFinal(voiceInput);
-                    }
-                  }}
-                  placeholder='Ex: "Gastei 50 reais no mercado hoje" ou "Recebi 200 de freelance no Pix"'
-                  rows={3}
-                  className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 resize-none font-medium text-slate-800"
-                />
-              </div>
+            <div className="space-y-1">
+              <textarea
+                value={voiceInput}
+                onChange={(e) => {
+                  setVoiceInput(e.target.value);
+                  setVoiceParsingError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleVoiceFinal(voiceInput || liveTranscript);
+                  }
+                }}
+                placeholder='Ex: "Gastei 50 reais no mercado hoje" ou "Recebi 200 de freelance no Pix"'
+                rows={3}
+                className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 resize-none font-medium text-slate-800"
+              />
+            </div>
 
             {/* Alerta de Erro de Reconhecimento ou Validação */}
             {(speechError || voiceParsingError) && (
@@ -1676,7 +1691,7 @@ export function FinanceSection() {
               <button
                 type="button"
                 onClick={() => {
-                  stopListening();
+                  cancelListening();
                   setShowVoiceModal(false);
                 }}
                 className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50"
@@ -1685,8 +1700,8 @@ export function FinanceSection() {
               </button>
               <button
                 type="button"
-                onClick={() => handleVoiceFinal(voiceInput)}
-                disabled={!voiceInput.trim()}
+                onClick={() => handleVoiceFinal(voiceInput || liveTranscript)}
+                disabled={!(voiceInput.trim() || liveTranscript.trim())}
                 className="flex-1 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
               >
                 Processar
