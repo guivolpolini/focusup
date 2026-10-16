@@ -18,6 +18,10 @@ import type {
   GymPreferences,
   Habit,
   HabitLog,
+  FinanceTransaction,
+  FinanceCard,
+  FinanceCategory,
+  FinanceMonthlyBudget,
 } from '../types';
 
 export class FocusUpDatabase extends Dexie {
@@ -39,6 +43,10 @@ export class FocusUpDatabase extends Dexie {
   gymPreferences!: Table<GymPreferences, string>;
   habits!: Table<Habit, string>;
   habitLogs!: Table<HabitLog, string>;
+  financeTransactions!: Table<FinanceTransaction, string>;
+  financeCards!: Table<FinanceCard, string>;
+  financeCategories!: Table<FinanceCategory, string>;
+  financeBudgets!: Table<FinanceMonthlyBudget, string>;
 
   constructor() {
     super('FocusUpDB');
@@ -71,6 +79,13 @@ export class FocusUpDatabase extends Dexie {
     this.version(4).stores({
       habits: 'id, name, category, frequencyType, isArchived, createdAt, updatedAt',
       habitLogs: 'id, habitId, date, completed, createdAt, updatedAt',
+    });
+
+    this.version(5).stores({
+      financeTransactions: 'id, type, date, categoryId, paymentMethod, cardId, installmentPlanId, invoiceMonth, createdAt, updatedAt',
+      financeCards: 'id, name, isArchived, createdAt, updatedAt',
+      financeCategories: 'id, name, type, isCustom',
+      financeBudgets: 'id, monthKey, updatedAt',
     });
   }
 }
@@ -426,5 +441,30 @@ export async function seedGymInitialData(force = false) {
       updatedAt: now,
     };
     await db.gymPreferences.put(defaultGymPreferences);
+  }
+
+  // Categorias padrão de Finanças
+  const catCount = await db.financeCategories.count();
+  if (catCount === 0) {
+    const defaultCategories: FinanceCategory[] = [
+      // Despesas
+      { id: 'cat-alimentacao', name: 'Alimentação', type: 'expense', icon: 'Utensils' },
+      { id: 'cat-transporte', name: 'Transporte', type: 'expense', icon: 'Car' },
+      { id: 'cat-lazer', name: 'Lazer', type: 'expense', icon: 'PartyPopper' },
+      { id: 'cat-academia', name: 'Academia', type: 'expense', icon: 'Dumbbell' },
+      { id: 'cat-assinaturas', name: 'Assinaturas', type: 'expense', icon: 'CreditCard' },
+      { id: 'cat-compras', name: 'Compras', type: 'expense', icon: 'ShoppingBag' },
+      { id: 'cat-moradia', name: 'Moradia', type: 'expense', icon: 'Home' },
+      { id: 'cat-saude', name: 'Saúde', type: 'expense', icon: 'HeartPulse' },
+      { id: 'cat-educacao', name: 'Educação', type: 'expense', icon: 'GraduationCap' },
+      { id: 'cat-outros-despesa', name: 'Outros', type: 'expense', icon: 'MoreHorizontal' },
+
+      // Receitas
+      { id: 'cat-salario', name: 'Salário', type: 'income', icon: 'Briefcase' },
+      { id: 'cat-freelance', name: 'Freelance', type: 'income', icon: 'Laptop' },
+      { id: 'cat-investimentos', name: 'Investimentos', type: 'income', icon: 'TrendingUp' },
+      { id: 'cat-outros-receita', name: 'Outras Receitas', type: 'income', icon: 'PlusCircle' },
+    ];
+    await db.financeCategories.bulkPut(defaultCategories);
   }
 }

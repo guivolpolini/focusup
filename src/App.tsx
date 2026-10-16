@@ -35,10 +35,12 @@ import {
   Sparkles,
   Dumbbell,
   CheckSquare,
+  Wallet,
 } from 'lucide-react';
 
 import { HabitsCard } from './components/HabitsCard';
 import { HabitsSection } from './components/HabitsSection';
+import { FinanceSection } from './components/FinanceSection';
 import { WeeklyReportCard } from './components/WeeklyReportCard';
 import { WeeklyReportSection } from './components/WeeklyReportSection';
 import { getHabitLogForDate, getHabitStatusForDate } from './lib/habitEngine';
@@ -89,7 +91,7 @@ import type {
 } from './types';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'college' | 'gym' | 'habits' | 'weekly_report' | 'progress' | 'settings'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'college' | 'gym' | 'habits' | 'finance' | 'weekly_report' | 'progress' | 'settings'>('home');
   const [now, setNow] = useState(Date.now());
   const [currentReview, setCurrentReview] = useState<WeeklyReview | null>(null);
 
@@ -526,6 +528,17 @@ export function App() {
           >
             <CheckSquare className="w-5 h-5 text-emerald-500" />
             Hábitos
+          </button>
+          <button
+            onClick={() => setActiveTab('finance')}
+            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
+              activeTab === 'finance'
+                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <Wallet className="w-5 h-5 text-emerald-500" />
+            Financeiro
           </button>
           <button
             onClick={() => setActiveTab('weekly_report')}
@@ -2347,6 +2360,11 @@ export function App() {
           />
         )}
 
+        {/* TAB: MÓDULO FINANCEIRO */}
+        {activeTab === 'finance' && (
+          <FinanceSection />
+        )}
+
         {/* TAB: RELATÓRIO SEMANAL */}
         {activeTab === 'weekly_report' && (
           <WeeklyReportSection
@@ -2696,6 +2714,7 @@ export function App() {
             { id: 'focus' as const, label: 'Foco', icon: Zap, activeColor: 'text-amber-600 bg-amber-50/90 border-amber-200 shadow-xs' },
             { id: 'gym' as const, label: 'Treino', icon: Dumbbell, activeColor: 'text-rose-600 bg-rose-50/90 border-rose-200 shadow-xs' },
             { id: 'habits' as const, label: 'Hábitos', icon: CheckSquare, activeColor: 'text-emerald-600 bg-emerald-50/90 border-emerald-200 shadow-xs' },
+            { id: 'finance' as const, label: 'Finanças', icon: Wallet, activeColor: 'text-emerald-600 bg-emerald-50/90 border-emerald-200 shadow-xs' },
             { id: 'college' as const, label: 'Facul', icon: GraduationCap, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
             { id: 'weekly_report' as const, label: 'Relatório', icon: FileText, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
             { id: 'progress' as const, label: 'Conquistas', icon: Trophy, activeColor: 'text-amber-600 bg-amber-50/90 border-amber-200 shadow-xs' },

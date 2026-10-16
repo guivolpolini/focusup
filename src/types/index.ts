@@ -475,3 +475,55 @@ export interface WeeklyComparison {
   habitsCompletionRateDiff: number; // ex: +5 (pontos percentuais)
 }
 
+// ==========================================
+// MÓDULO FINANCEIRO (FocusUp Finance)
+// ==========================================
+
+export type FinancePaymentMethod = 'money' | 'pix' | 'debit' | 'credit' | 'other';
+export type FinanceTransactionType = 'income' | 'expense';
+
+export interface FinanceTransaction {
+  id: string;
+  type: FinanceTransactionType;
+  amountInCents: number; // Inteiro em centavos (ex: 4990 = R$ 49,90)
+  description: string;
+  categoryId: string;
+  date: string; // YYYY-MM-DD
+  paymentMethod: FinancePaymentMethod;
+  cardId?: string; // Obrigatório se paymentMethod === 'credit'
+  installmentPlanId?: string; // ID da compra original se parcelada
+  installmentNumber?: number; // Ex: 1, 2, 3...
+  totalInstallments?: number; // Ex: 10
+  invoiceMonth?: string; // Mês da fatura YYYY-MM (se cartão)
+  isInvoicePayment?: boolean; // True se for quitação de fatura
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface FinanceCard {
+  id: string;
+  name: string;
+  color?: string;
+  limitInCents?: number;
+  closingDay: number; // 1 a 31
+  dueDay: number; // 1 a 31
+  isArchived: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface FinanceCategory {
+  id: string;
+  name: string;
+  type: FinanceTransactionType;
+  icon?: string;
+  isCustom?: boolean;
+}
+
+export interface FinanceMonthlyBudget {
+  id: string; // ex: 'budget_2026-10'
+  monthKey: string; // YYYY-MM
+  limitInCents: number;
+  updatedAt: number;
+}
+
