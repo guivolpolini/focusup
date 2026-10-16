@@ -497,17 +497,6 @@ export function App() {
             )}
           </button>
           <button
-            onClick={() => setActiveTab('college')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
-              activeTab === 'college'
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <GraduationCap className="w-5 h-5 text-indigo-500" />
-            Faculdade
-          </button>
-          <button
             onClick={() => setActiveTab('gym')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
               activeTab === 'gym'
@@ -2715,7 +2704,6 @@ export function App() {
             { id: 'gym' as const, label: 'Treino', icon: Dumbbell, activeColor: 'text-rose-600 bg-rose-50/90 border-rose-200 shadow-xs' },
             { id: 'habits' as const, label: 'Hábitos', icon: CheckSquare, activeColor: 'text-emerald-600 bg-emerald-50/90 border-emerald-200 shadow-xs' },
             { id: 'finance' as const, label: 'Finanças', icon: Wallet, activeColor: 'text-emerald-600 bg-emerald-50/90 border-emerald-200 shadow-xs' },
-            { id: 'college' as const, label: 'Facul', icon: GraduationCap, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
             { id: 'weekly_report' as const, label: 'Relatório', icon: FileText, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
             { id: 'progress' as const, label: 'Conquistas', icon: Trophy, activeColor: 'text-amber-600 bg-amber-50/90 border-amber-200 shadow-xs' },
             { id: 'settings' as const, label: 'Cofre', icon: Shield, activeColor: 'text-slate-700 bg-slate-100 border-slate-300 shadow-xs' },
