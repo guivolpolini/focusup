@@ -86,6 +86,7 @@ export function FinanceSection() {
 
   // Período do gráfico de evolução mensal (3, 6 ou 12 meses)
   const [evolutionMonths, setEvolutionMonths] = useState<3 | 6 | 12>(6);
+  const [hoveredEvolutionMonth, setHoveredEvolutionMonth] = useState<string | null>(null);
 
   // Filtros de Lançamentos
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
@@ -148,7 +149,9 @@ export function FinanceSection() {
 
   // Análises e Gráficos do Dashboard
   const monthlyEvolution = useMemo(() => {
-    return calculateMonthlyEvolution(transactions, currentMonthKey, evolutionMonths);
+    // Ancora no mês atual do calendário (ou no mês selecionado se for posterior) para manter o histórico sempre visível
+    const anchor = currentMonthKey > getMonthKey() ? currentMonthKey : getMonthKey();
+    return calculateMonthlyEvolution(transactions, anchor, evolutionMonths);
   }, [transactions, currentMonthKey, evolutionMonths]);
 
   const fixedVsVariable = useMemo(() => {
@@ -860,27 +863,40 @@ export function FinanceSection() {
           </div>
 
           {/* Seletor de Mês */}
-          <div className="flex items-center bg-slate-100/80 rounded-xl p-1 border border-slate-200/60 self-stretch sm:self-auto justify-between sm:justify-start">
-            <button
-              onClick={handlePrevMonth}
-              title="Mês anterior"
-              className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-white transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleCurrentMonth}
-              className="px-3 py-1 text-xs font-semibold text-slate-700 hover:text-emerald-700 min-w-36 text-center"
-            >
-              {formatMonthYear(currentMonthKey)}
-            </button>
-            <button
-              onClick={handleNextMonth}
-              title="Próximo mês"
-              className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-white transition-colors"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+          <div className="flex items-center gap-2 self-stretch sm:self-auto justify-between sm:justify-start">
+            {currentMonthKey !== getMonthKey() && (
+              <button
+                type="button"
+                onClick={handleCurrentMonth}
+                title="Voltar para o mês atual"
+                className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1.5 rounded-xl transition-colors whitespace-nowrap shadow-2xs"
+              >
+                ← Mês Atual
+              </button>
+            )}
+            <div className="flex items-center bg-slate-100/80 rounded-xl p-1 border border-slate-200/60">
+              <button
+                onClick={handlePrevMonth}
+                title="Mês anterior"
+                className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-white transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleCurrentMonth}
+                title="Clique para ir ao mês atual"
+                className="px-3 py-1 text-xs font-semibold text-slate-700 hover:text-emerald-700 min-w-36 text-center"
+              >
+                {formatMonthYear(currentMonthKey)}
+              </button>
+              <button
+                onClick={handleNextMonth}
+                title="Próximo mês"
+                className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-white transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1655,26 +1671,30 @@ export function FinanceSection() {
                           ? Math.max(4, Math.round((pt.expenseInCents / maxEvolutionValue) * 100))
                           : 4;
                       const isCurrent = pt.monthKey === currentMonthKey;
+                      const isHovered = pt.monthKey === (hoveredEvolutionMonth || currentMonthKey);
 
                       return (
                         <div
                           key={pt.monthKey}
-                          onClick={() => setCurrentMonthKey(pt.monthKey)}
+                          onClick={() => setHoveredEvolutionMonth(pt.monthKey)}
+                          onMouseEnter={() => setHoveredEvolutionMonth(pt.monthKey)}
                           title={`${pt.fullLabel}\nReceitas: ${formatCentsToBRL(
                             pt.incomeInCents
                           )}\nDespesas: ${formatCentsToBRL(pt.expenseInCents)}`}
-                          className="flex-1 flex flex-col items-center gap-1.5 cursor-pointer group h-full justify-end"
+                          className={`flex-1 flex flex-col items-center gap-1.5 cursor-pointer rounded-lg p-1 transition-all h-full justify-end ${
+                            isHovered ? 'bg-slate-50 shadow-2xs' : 'hover:bg-slate-50/50'
+                          }`}
                         >
                           <div className="w-full flex items-end justify-center gap-1 h-28">
                             <div
-                              className="w-2.5 sm:w-3 bg-emerald-500 group-hover:bg-emerald-600 rounded-t transition-all"
+                              className="w-2.5 sm:w-3 bg-emerald-500 rounded-t transition-all"
                               style={{
                                 height: pt.incomeInCents > 0 ? `${incHeight}%` : '2px',
                                 opacity: pt.incomeInCents > 0 ? 1 : 0.25,
                               }}
                             />
                             <div
-                              className="w-2.5 sm:w-3 bg-rose-500 group-hover:bg-rose-600 rounded-t transition-all"
+                              className="w-2.5 sm:w-3 bg-rose-500 rounded-t transition-all"
                               style={{
                                 height: pt.expenseInCents > 0 ? `${expHeight}%` : '2px',
                                 opacity: pt.expenseInCents > 0 ? 1 : 0.25,
@@ -1683,7 +1703,11 @@ export function FinanceSection() {
                           </div>
                           <span
                             className={`text-[10px] truncate ${
-                              isCurrent ? 'font-bold text-emerald-700' : 'text-slate-400'
+                              isCurrent
+                                ? 'font-bold text-emerald-700'
+                                : isHovered
+                                ? 'font-semibold text-slate-800'
+                                : 'text-slate-400'
                             }`}
                           >
                             {pt.shortLabel}
@@ -1692,6 +1716,57 @@ export function FinanceSection() {
                       );
                     })}
                   </div>
+
+                  {/* Card de Detalhes do Mês no Gráfico */}
+                  {(() => {
+                    const activePoint =
+                      monthlyEvolution.points.find(
+                        (p) => p.monthKey === (hoveredEvolutionMonth || currentMonthKey)
+                      ) || monthlyEvolution.points[monthlyEvolution.points.length - 1];
+
+                    if (!activePoint) return null;
+
+                    const balance = activePoint.incomeInCents - activePoint.expenseInCents;
+
+                    return (
+                      <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-800">{activePoint.fullLabel}</span>
+                          {activePoint.monthKey === currentMonthKey && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-semibold">
+                              Mês Selecionado
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="font-medium text-emerald-700">
+                            Receitas: <strong>{formatCentsToBRL(activePoint.incomeInCents)}</strong>
+                          </span>
+                          <span className="font-medium text-rose-700">
+                            Despesas: <strong>{formatCentsToBRL(activePoint.expenseInCents)}</strong>
+                          </span>
+                          <span
+                            className={`font-bold ${
+                              balance >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                            }`}
+                          >
+                            Saldo: {formatCentsToBRL(balance)}
+                          </span>
+
+                          {activePoint.monthKey !== currentMonthKey && (
+                            <button
+                              type="button"
+                              onClick={() => setCurrentMonthKey(activePoint.monthKey)}
+                              className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 underline ml-auto sm:ml-0"
+                            >
+                              Filtrar painel para este mês →
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
