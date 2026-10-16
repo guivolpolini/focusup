@@ -28,6 +28,7 @@ import {
   RotateCcw,
   Clock,
   ArrowRight,
+  Sparkles,
 } from 'lucide-react';
 import { db } from '../lib/db';
 import {
@@ -41,6 +42,7 @@ import {
   calculateCardSummary,
   generateInstallmentTransactions,
   parseCSVTransactions,
+  inferCategoryFromDescription,
   getRecurringOccurrencesForMonth,
   buildRecurringPaymentTransaction,
   calculateMonthlyEvolution,
@@ -640,7 +642,7 @@ export function FinanceSection() {
     setShowNewCategoryModal(false);
   };
 
-  // Processar Upload de CSV
+  // Processar Upload de CSV com Categorização Inteligente por Linha
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -649,10 +651,13 @@ export function FinanceSection() {
     reader.onload = (event) => {
       const text = event.target?.result as string;
       if (text) {
-        const { rows } = parseCSVTransactions(text);
-        setCsvPreviewRows(rows);
-        const defaultCat = categories.find((c) => c.type === 'expense')?.id || '';
+        const defaultCat =
+          categories.find((c) => c.id === 'cat-outros-despesa')?.id ||
+          categories.find((c) => c.type === 'expense')?.id ||
+          '';
         setCsvDefaultCategory(defaultCat);
+        const { rows } = parseCSVTransactions(text, categories, defaultCat);
+        setCsvPreviewRows(rows);
         setShowCSVModal(true);
       }
     };
@@ -660,7 +665,63 @@ export function FinanceSection() {
     e.target.value = '';
   };
 
-  // Confirmar Importação de CSV
+  // Atualizar categoria individual de uma linha do preview CSV
+  const handleUpdateCSVRowCategory = (rowIndex: number, newCategoryId: string) => {
+    setCsvPreviewRows((prev) =>
+      prev.map((row, idx) =>
+        idx === rowIndex ? { ...row, categoryId: newCategoryId, autoMatched: true } : row
+      )
+    );
+  };
+
+  // Atualizar tipo (despesa/receita) individual de uma linha do preview CSV
+  const handleUpdateCSVRowType = (rowIndex: number, newType: FinanceTransactionType) => {
+    setCsvPreviewRows((prev) =>
+      prev.map((row, idx) => {
+        if (idx !== rowIndex) return row;
+        const inferred = inferCategoryFromDescription(
+          row.description,
+          newType,
+          categories,
+          row.rawCategory,
+          csvDefaultCategory
+        );
+        return {
+          ...row,
+          type: newType,
+          categoryId: inferred.categoryId,
+          autoMatched: inferred.matched,
+        };
+      })
+    );
+  };
+
+  // Remover uma linha indesejada do preview CSV antes de importar
+  const handleRemoveCSVRow = (rowIndex: number) => {
+    setCsvPreviewRows((prev) => prev.filter((_, idx) => idx !== rowIndex));
+  };
+
+  // Reaplicar categorização inteligente em todas as linhas do CSV
+  const handleReapplyAutoCategorization = () => {
+    setCsvPreviewRows((prev) =>
+      prev.map((row) => {
+        const inferred = inferCategoryFromDescription(
+          row.description,
+          row.type || csvDefaultType,
+          categories,
+          row.rawCategory,
+          csvDefaultCategory
+        );
+        return {
+          ...row,
+          categoryId: inferred.categoryId,
+          autoMatched: inferred.matched,
+        };
+      })
+    );
+  };
+
+  // Confirmar Importação de CSV respeitando a categoria individual de cada linha
   const handleConfirmCSVImport = async () => {
     if (csvPreviewRows.length === 0) return;
 
@@ -670,7 +731,7 @@ export function FinanceSection() {
       type: row.type || csvDefaultType,
       amountInCents: row.amountInCents,
       description: row.description,
-      categoryId: csvDefaultCategory,
+      categoryId: row.categoryId || csvDefaultCategory,
       date: row.date,
       paymentMethod: 'other',
       createdAt: now,
@@ -680,7 +741,38 @@ export function FinanceSection() {
     await db.financeTransactions.bulkAdd(newTransactions);
     setShowCSVModal(false);
     setCsvPreviewRows([]);
-    alert(`${newTransactions.length} lançamentos importados com sucesso!`);
+    alert(`${newTransactions.length} lançamentos importados com suas respectivas categorias!`);
+  };
+
+  // Auto-categorizar lançamentos já existentes no mês atual com 1 clique
+  const handleAutoCategorizeExistingMonth = async () => {
+    if (monthTransactions.length === 0) return;
+
+    let updatedCount = 0;
+    const now = Date.now();
+
+    for (const tx of monthTransactions) {
+      const inferred = inferCategoryFromDescription(tx.description, tx.type, categories);
+      if (inferred.matched && inferred.categoryId && inferred.categoryId !== tx.categoryId) {
+        await db.financeTransactions.update(tx.id, {
+          categoryId: inferred.categoryId,
+          updatedAt: now,
+        });
+        updatedCount++;
+      }
+    }
+
+    if (updatedCount > 0) {
+      alert(
+        `✨ ${updatedCount} lançamento(s) de ${formatMonthYear(
+          currentMonthKey
+        )} foram re-categorizados automaticamente pelo nome do estabelecimento!`
+      );
+    } else {
+      alert(
+        'Todos os lançamentos identificáveis deste mês já estão nas categorias correspondentes. Você também pode trocar a categoria clicando diretamente no seletor de cada item na lista!'
+      );
+    }
   };
 
   // Maior valor para escala do gráfico de evolução mensal
@@ -2302,14 +2394,23 @@ export function FinanceSection() {
               </select>
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <input
                 type="text"
                 placeholder="Buscar lançamento..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full sm:w-56 text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 outline-none focus:border-emerald-500"
+                className="w-full sm:w-52 text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 outline-none focus:border-emerald-500"
               />
+              <button
+                type="button"
+                onClick={handleAutoCategorizeExistingMonth}
+                title="Classificar automaticamente cada gasto deste mês pelo nome do estabelecimento"
+                className="flex items-center gap-1 text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold whitespace-nowrap px-2.5 py-1.5 rounded-xl transition-colors"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                Auto-categorizar
+              </button>
               <button
                 onClick={() => setShowNewCategoryModal(true)}
                 title="Criar categoria personalizada"
@@ -2335,7 +2436,6 @@ export function FinanceSection() {
             ) : (
               <div className="divide-y divide-slate-100">
                 {filteredTransactions.map((tx) => {
-                  const cat = categoryMap.get(tx.categoryId);
                   const isExpense = tx.type === 'expense';
                   const isCredit = tx.paymentMethod === 'credit';
                   const card =
@@ -2372,10 +2472,27 @@ export function FinanceSection() {
                               </span>
                             )}
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400 mt-0.5">
-                            <span className="font-medium text-slate-600">
-                              {cat?.name || 'Sem categoria'}
-                            </span>
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400 mt-1">
+                            {/* Seletor rápido de categoria direto na linha */}
+                            <select
+                              value={tx.categoryId}
+                              onChange={async (e) => {
+                                await db.financeTransactions.update(tx.id, {
+                                  categoryId: e.target.value,
+                                  updatedAt: Date.now(),
+                                });
+                              }}
+                              title="Clique para trocar a categoria deste lançamento"
+                              className="font-semibold text-slate-700 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 border border-slate-200/80 rounded-lg px-2 py-0.5 text-[11px] outline-none focus:border-emerald-500 cursor-pointer transition-colors"
+                            >
+                              {categories
+                                .filter((c) => c.type === tx.type)
+                                .map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.name}
+                                  </option>
+                                ))}
+                            </select>
                             <span>•</span>
                             <span>{formatDateBR(tx.date)}</span>
                             <span>•</span>
@@ -3274,52 +3391,116 @@ export function FinanceSection() {
       {/* ============================================================ */}
       {showCSVModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-xl space-y-4">
+          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-xl space-y-4 max-h-[92vh] flex flex-col">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900">
-                Revisar Importação de Extrato
-              </h3>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Revisar Importação de Extrato
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Foram identificados <strong>{csvPreviewRows.length}</strong> registros válidos.
+                  Cada gasto possui sua própria categoria abaixo.
+                </p>
+              </div>
               <button
                 onClick={() => setShowCSVModal(false)}
-                className="text-slate-400 hover:text-slate-600"
+                className="text-slate-400 hover:text-slate-600 p-1"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-500">
-              Foram identificados <strong>{csvPreviewRows.length}</strong> registros válidos no
-              arquivo CSV.
-            </p>
+            {/* Banner de Categorização Inteligente */}
+            <div className="p-3 rounded-xl bg-indigo-50/80 border border-indigo-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-indigo-900">
+                <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span>
+                  <strong>
+                    {csvPreviewRows.filter((r) => r.autoMatched).length} de {csvPreviewRows.length}
+                  </strong>{' '}
+                  lançamentos foram categorizados automaticamente pelo nome. Você pode alterar a
+                  categoria de <strong>cada item individualmente</strong> na tabela.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleReapplyAutoCategorization}
+                className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold whitespace-nowrap self-start sm:self-auto"
+              >
+                Re-classificar tudo
+              </button>
+            </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            {/* Controles de Fallback Padrão */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Categoria Padrão
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                  Categoria padrão para itens não identificados
                 </label>
-                <select
-                  value={csvDefaultCategory}
-                  onChange={(e) => setCsvDefaultCategory(e.target.value)}
-                  className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl"
-                >
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex gap-1.5">
+                  <select
+                    value={csvDefaultCategory}
+                    onChange={(e) => {
+                      const nextDefault = e.target.value;
+                      setCsvDefaultCategory(nextDefault);
+                      // Atualiza apenas as linhas que ainda não tinham correspondência automática/manual
+                      setCsvPreviewRows((prev) =>
+                        prev.map((r) =>
+                          !r.autoMatched ? { ...r, categoryId: nextDefault } : r
+                        )
+                      );
+                    }}
+                    className="flex-1 text-xs px-3 py-1.5 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
+                  >
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCsvPreviewRows((prev) =>
+                        prev.map((r) => ({ ...r, categoryId: csvDefaultCategory }))
+                      );
+                    }}
+                    title="Aplicar esta categoria em absolutamente todas as linhas"
+                    className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-[11px] font-semibold text-slate-600 whitespace-nowrap"
+                  >
+                    Aplicar a todos
+                  </button>
+                </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Tratar como
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                  Tipo padrão do extrato
                 </label>
                 <select
                   value={csvDefaultType}
-                  onChange={(e) =>
-                    setCsvDefaultType(e.target.value as FinanceTransactionType)
-                  }
-                  className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl"
+                  onChange={(e) => {
+                    const nextType = e.target.value as FinanceTransactionType;
+                    setCsvDefaultType(nextType);
+                    setCsvPreviewRows((prev) =>
+                      prev.map((r) => {
+                        const inferred = inferCategoryFromDescription(
+                          r.description,
+                          nextType,
+                          categories,
+                          r.rawCategory,
+                          csvDefaultCategory
+                        );
+                        return {
+                          ...r,
+                          type: nextType,
+                          categoryId: inferred.categoryId,
+                          autoMatched: inferred.matched,
+                        };
+                      })
+                    );
+                  }}
+                  className="w-full text-xs px-3 py-1.5 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
                 >
                   <option value="expense">Despesas</option>
                   <option value="income">Receitas</option>
@@ -3327,52 +3508,118 @@ export function FinanceSection() {
               </div>
             </div>
 
-            <div className="max-h-56 overflow-y-auto border border-slate-100 rounded-xl text-xs">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50 text-slate-500 text-[11px] uppercase">
+            {/* Tabela Completa com Seletor de Categoria por Linha */}
+            <div className="flex-1 min-h-0 max-h-80 overflow-y-auto border border-slate-200/80 rounded-xl text-xs">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-50 text-slate-500 text-[11px] uppercase sticky top-0 z-10 border-b border-slate-200">
                   <tr>
                     <th className="p-2.5">Data</th>
                     <th className="p-2.5">Descrição</th>
+                    <th className="p-2.5">Categoria do Gasto</th>
+                    <th className="p-2.5">Tipo</th>
                     <th className="p-2.5 text-right">Valor</th>
+                    <th className="p-2.5 w-8"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {csvPreviewRows.slice(0, 15).map((row, i) => (
-                    <tr key={i} className="hover:bg-slate-50/50">
-                      <td className="p-2.5 font-medium text-slate-600">
-                        {formatDateBR(row.date)}
-                      </td>
-                      <td className="p-2.5 text-slate-800">{row.description}</td>
-                      <td className="p-2.5 text-right font-bold text-slate-900">
-                        {formatCentsToBRL(row.amountInCents)}
-                      </td>
-                    </tr>
-                  ))}
+                  {csvPreviewRows.map((row, i) => {
+                    const rowType = row.type || csvDefaultType;
+                    const availableCats = categories.filter((c) => c.type === rowType);
+                    const catList = availableCats.length > 0 ? availableCats : categories;
+
+                    return (
+                      <tr key={i} className="hover:bg-slate-50/70">
+                        <td className="p-2.5 font-medium text-slate-600 whitespace-nowrap">
+                          {formatDateBR(row.date)}
+                        </td>
+                        <td className="p-2.5 text-slate-800">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium">{row.description}</span>
+                            {row.autoMatched && (
+                              <span
+                                title="Categoria identificada automaticamente pelo nome"
+                                className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 font-semibold shrink-0"
+                              >
+                                Auto
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-2">
+                          <select
+                            value={row.categoryId || csvDefaultCategory}
+                            onChange={(e) => handleUpdateCSVRowCategory(i, e.target.value)}
+                            className="w-full min-w-[140px] text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 font-semibold outline-none focus:border-emerald-500 cursor-pointer"
+                          >
+                            {catList.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="p-2">
+                          <select
+                            value={rowType}
+                            onChange={(e) =>
+                              handleUpdateCSVRowType(i, e.target.value as FinanceTransactionType)
+                            }
+                            className={`text-[11px] font-bold px-2 py-1 rounded-lg border outline-none cursor-pointer ${
+                              rowType === 'expense'
+                                ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            }`}
+                          >
+                            <option value="expense">Despesa</option>
+                            <option value="income">Receita</option>
+                          </select>
+                        </td>
+                        <td className="p-2.5 text-right font-bold text-slate-900 whitespace-nowrap">
+                          {formatCentsToBRL(row.amountInCents)}
+                        </td>
+                        <td className="p-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCSVRow(i)}
+                            title="Ignorar / remover esta linha da importação"
+                            className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
-              {csvPreviewRows.length > 15 && (
-                <div className="p-2 text-center text-[11px] text-slate-400 bg-slate-50/50">
-                  + {csvPreviewRows.length - 15} outros lançamentos
-                </div>
-              )}
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
-                onClick={() => setShowCSVModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                onClick={() => setShowNewCategoryModal(true)}
+                className="text-xs font-semibold text-emerald-600 hover:text-emerald-700"
               >
-                Cancelar
+                + Criar nova categoria
               </button>
-              <button
-                type="button"
-                onClick={handleConfirmCSVImport}
-                className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                Confirmar Importação
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCSVModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmCSVImport}
+                  disabled={csvPreviewRows.length === 0}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white flex items-center gap-1.5 shadow-xs"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  Confirmar Importação ({csvPreviewRows.length})
+                </button>
+              </div>
             </div>
           </div>
         </div>

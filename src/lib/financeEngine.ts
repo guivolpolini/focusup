@@ -1,6 +1,7 @@
 import type {
   FinanceTransaction,
   FinanceCard,
+  FinanceCategory,
   FinanceMonthlyBudget,
   FinanceRecurringExpense,
   FinanceRecurringFrequency,
@@ -347,20 +348,265 @@ export interface ParsedCSVRow {
   description: string;
   amountInCents: number;
   type: 'income' | 'expense';
+  categoryId?: string;
+  autoMatched?: boolean;
+  rawCategory?: string;
   isDuplicate?: boolean;
 }
 
 /**
- * Leitor rápido de CSV bancário (suporta delimitador vírgula ou ponto-e-vírgula)
+ * Normaliza texto para comparação sem acentos e em minúsculas
  */
-export function parseCSVTransactions(csvContent: string): {
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+/**
+ * Classificador inteligente de categorias financeiras para extratos bancários e faturas brasileiras
+ * (Nubank, Inter, Itaú, C6, Santander, Bradesco, etc.)
+ */
+export function inferCategoryFromDescription(
+  description: string,
+  type: 'income' | 'expense',
+  categories: FinanceCategory[],
+  rawCategoryHint?: string,
+  fallbackCategoryId?: string
+): { categoryId: string; matched: boolean } {
+  const normDesc = normalizeText(description);
+  const normHint = rawCategoryHint ? normalizeText(rawCategoryHint) : '';
+  const typeCategories = categories.filter((c) => c.type === type);
+  const pool = typeCategories.length > 0 ? typeCategories : categories;
+
+  const findCategoryByIdOrKeyword = (targetId: string, nameKeywords: string[]): FinanceCategory | undefined => {
+    const byExactId = pool.find(
+      (c) => c.id === targetId || c.id === targetId.replace(/-/g, '_') || c.id === targetId.replace(/_/g, '-')
+    );
+    if (byExactId) return byExactId;
+
+    return pool.find((c) => {
+      const cn = normalizeText(c.name);
+      return nameKeywords.some((kw) => cn.includes(kw));
+    });
+  };
+
+  // 1. Se o CSV trouxe uma coluna de categoria explícita, tenta casar com as categorias do usuário
+  if (normHint) {
+    const directHintMatch = pool.find((c) => {
+      const cn = normalizeText(c.name);
+      return cn === normHint || cn.includes(normHint) || normHint.includes(cn);
+    });
+    if (directHintMatch) {
+      return { categoryId: directHintMatch.id, matched: true };
+    }
+  }
+
+  // 2. Verifica se o próprio nome de alguma categoria personalizada do usuário aparece na descrição
+  // (ex: usuário criou categoria "Mercado" ou "Pet Shop")
+  for (const cat of pool) {
+    const cn = normalizeText(cat.name);
+    if (cn.length >= 3 && cn !== 'outros' && cn !== 'outras receitas' && normDesc.includes(cn)) {
+      return { categoryId: cat.id, matched: true };
+    }
+  }
+
+  if (type === 'income') {
+    const incomeRules: { id: string; nameHints: string[]; keywords: string[] }[] = [
+      {
+        id: 'cat-salario',
+        nameHints: ['salario', 'remuneracao'],
+        keywords: ['salario', 'pagamento folha', 'adiantamento salarial', 'holerite', 'pro-labore', 'prolabore'],
+      },
+      {
+        id: 'cat-freelance',
+        nameHints: ['freelance', 'freela', 'servico'],
+        keywords: ['freelance', 'freela', 'consultoria', 'projeto', 'honorario', 'servico prestado'],
+      },
+      {
+        id: 'cat-investimentos',
+        nameHints: ['investimento', 'rendimento', 'dividendo'],
+        keywords: ['dividendo', 'rendimento', 'jcp', 'tesouro', 'cdb', 'fii', 'resgate'],
+      },
+    ];
+
+    for (const rule of incomeRules) {
+      if (rule.keywords.some((kw) => normDesc.includes(kw) || normHint.includes(kw))) {
+        const matchedCat = findCategoryByIdOrKeyword(rule.id, rule.nameHints);
+        if (matchedCat) return { categoryId: matchedCat.id, matched: true };
+      }
+    }
+  } else {
+    // Regras de estabelecimentos para Despesas no Brasil
+    // Caso o usuário tenha uma categoria específica "Mercado", priorizamos estabelecimentos de supermercado nela
+    const customMercadoCat = pool.find((c) => normalizeText(c.name) === 'mercado' || normalizeText(c.name) === 'supermercado');
+    const supermarketKeywords = [
+      'mercado', 'supermercado', 'hipermercado', 'atacadao', 'assai', 'carrefour',
+      'pao de acucar', 'minuto pao', 'extra ', 'oxxo', 'hirota', 'sonda', 'bem barato',
+      'nagumo', 'coop', 'chama', 'barbosa', 'lopes', 'shibata', 'savegnago', 'oba ',
+      'sacolao', 'hortifruti', 'swift', 'acougue', 'peixaria', 'emporio', 'mercearia',
+    ];
+    if (customMercadoCat && supermarketKeywords.some((kw) => normDesc.includes(kw) || normHint.includes(kw))) {
+      return { categoryId: customMercadoCat.id, matched: true };
+    }
+
+    const expenseRules: { id: string; nameHints: string[]; keywords: string[] }[] = [
+      {
+        id: 'cat-alimentacao',
+        nameHints: ['alimenta', 'comida', 'restaurante', 'mercado'],
+        keywords: [
+          ...supermarketKeywords,
+          'ifd*', 'ifood', 'ifd ', 'rappi', 'ze delivery', 'aiqfome',
+          'kfc', 'mcdonalds', 'mc donalds', 'arcos dourados', 'bk ', 'burger king', 'burguer',
+          'outback', 'madero', 'jeronimo', 'habibs', 'subway', 'starbucks', 'dunkin',
+          'bobs', 'giraffas', 'spoleto', 'china in box', 'gendai', 'ragazzo', 'popeyes',
+          'pizza', 'pizzaria', 'sushi', 'temaki', 'japa', 'churrasc', 'restaurante',
+          'lanchonete', 'lanche', 'padaria', 'panificadora', 'confeitaria', 'doceria',
+          'sorvet', 'acai', 'cafe', 'cafeteria', 'pastel', 'coxinha', 'esfiha',
+          'bar ', 'boteco', 'choperia', 'comerci', 'alimento', 'refeicao', 'bistro',
+        ],
+      },
+      {
+        id: 'cat-transporte',
+        nameHints: ['transporte', 'mobilidade', 'carro', 'combustivel'],
+        keywords: [
+          'uber', '99app', '99*', '99 pop', '99pop', '99taxi', 'indrive', 'cabify', 'taxi',
+          'posto ', 'auto posto', 'autoposto', 'ipiranga', 'shell', 'petrobras', 'br mania',
+          'combustivel', 'gasolina', 'etanol', 'diesel',
+          'estacionamento', 'estapar', 'indigo', 'multipark', 'netpark', 'park',
+          'sem parar', 'semparar', 'veloe', 'conectcar', 'taggy', 'zul',
+          'pedagio', 'ccr', 'ecovias', 'autopista',
+          'metro', 'cptm', 'sptrans', 'bilhete unico', 'top ', 'recarga transporte',
+          'buser', 'clickbus', 'viacao', 'onibus', 'latam', 'gol ', 'azul ',
+          'localiza', 'movida', 'unidas', 'turbi', 'oficina', 'mecanica', 'pneu', 'lava rapido',
+        ],
+      },
+      {
+        id: 'cat-compras',
+        nameHints: ['compra', 'shopping', 'vestuario', 'roupa'],
+        keywords: [
+          'inditex', 'zara', 'renner', 'riachuelo', 'cea', 'c&a', 'marisa', 'h&m', 'forever 21',
+          'youcom', 'hering', 'reserva', 'nike', 'adidas', 'puma', 'vans', 'centauro',
+          'decathlon', 'netshoes', 'dafiti', 'arezzo', 'schutz', 'anacapri', 'havaianas', 'lupo',
+          'shein', 'shopee', 'shpp', 'aliexpress', 'ali express', 'mercado livre', 'mercadolivre',
+          'mercadopago*', 'mp *', 'meli', 'amazon', 'amzn', 'magalu', 'magazine', 'casas bahia',
+          'ponto frio', 'fast shop', 'polishop', 'kabum', 'pichau', 'terabyte', 'kalunga',
+          'le biscuit', 'daiso', 'miniso', 'americanas', 'saraiva', 'leitura', 'boticario',
+          'natura', 'sephora', 'epocacosmeticos', 'vivara', 'pandora', 'chilli beans', 'otica',
+          'shopping', 'plaza', 'outlet', 'loja ', 'magazine', 'parcela ',
+        ],
+      },
+      {
+        id: 'cat-assinaturas',
+        nameHints: ['assinatura', 'streaming', 'servico', 'recorrente'],
+        keywords: [
+          'netflix', 'spotify', 'amazon prime', 'prime video', 'disney', 'star+', 'hbo', 'max ',
+          'globoplay', 'paramount', 'apple.com/bill', 'icloud', 'google *', 'google*', 'youtube',
+          'crunchyroll', 'twitch', 'deezer', 'audible', 'kindle', 'chatgpt', 'openai', 'anthropic',
+          'claude', 'midjourney', 'cursor', 'github', 'vercel', 'supabase', 'digitalocean', 'aws',
+          'cloudflare', 'adobe', 'canva', 'figma', 'notion', 'slack', 'zoom', 'microsoft',
+          'onedrive', 'dropbox', 'playstation', 'psn', 'xbox', 'nintendo', 'steam', 'epic games',
+          'vivo', 'claro', 'tim ', 'oi ', 'algar', 'sky', 'net ',
+        ],
+      },
+      {
+        id: 'cat-academia',
+        nameHints: ['academia', 'fitness', 'treino', 'esporte'],
+        keywords: [
+          'smartfit', 'smart fit', 'bluefit', 'bio ritmo', 'bioritmo', 'bodytech', 'panobianco',
+          'gavioes', 'selfit', 'skyfit', 'evoque', 'ironberg', 'gympass', 'wellhub', 'totalpass',
+          'academia', 'crossfit', 'pilates', 'yoga', 'natacao', 'jiu jitsu', 'muay thai', 'boxe',
+          'beach tennis', 'growth', 'gsuplementos', 'max titanium', 'integralmedica', 'dux ',
+          'dark lab', 'suplemento', 'whey', 'creatina',
+        ],
+      },
+      {
+        id: 'cat-saude',
+        nameHints: ['saude', 'farmacia', 'medico'],
+        keywords: [
+          'drogasil', 'droga raia', 'drogaria', 'farmacia', 'pague menos', 'ultrafarma', 'panvel',
+          'araujo', 'farma', 'hospital', 'clinica', 'laboratorio', 'fleury', 'lavoisier', 'delboni',
+          'dasa', 'dr consulta', 'dr.consulta', 'medico', 'consulta', 'exame', 'dentista', 'odonto',
+          'psicolog', 'terapia', 'fisioterapia', 'nutricionista', 'unimed', 'amil', 'sulamerica',
+          'notredame', 'hapvida',
+        ],
+      },
+      {
+        id: 'cat-moradia',
+        nameHints: ['moradia', 'casa', 'aluguel', 'conta'],
+        keywords: [
+          'aluguel', 'quintoandar', 'quinto andar', 'imobiliaria', 'condominio',
+          'enel', 'eletropaulo', 'cpfl', 'edp ', 'cemig', 'copel', 'celesc', 'light', 'neoenergia',
+          'sabesp', 'copasa', 'sanepar', 'comgas', 'naturgy', 'ultragaz', 'consigaz', 'iptu',
+          'leroy merlin', 'telhanorte', 'sodimac', 'c&c', 'tok&stok', 'tok stok', 'mobly',
+          'madeiramadeira', 'camicado', 'precolandia', 'lavanderia',
+        ],
+      },
+      {
+        id: 'cat-educacao',
+        nameHints: ['educacao', 'estudo', 'curso', 'faculdade'],
+        keywords: [
+          'faculdade', 'universidade', 'maua', 'usp', 'unicamp', 'puc', 'mackenzie', 'fgv',
+          'insper', 'fei ', 'espm', 'anhembi', 'unip', 'uninove', 'estacio', 'anhanguera',
+          'escola', 'colegio', 'curso', 'udemy', 'alura', 'rocketseat', 'origamid', 'coursera',
+          'domestika', 'hotmart', 'kiwify', 'eduzz', 'duolingo', 'cultura inglesa', 'wizard',
+          'livraria', 'papelaria',
+        ],
+      },
+      {
+        id: 'cat-lazer',
+        nameHints: ['lazer', 'diversao', 'entretenimento', 'viagem'],
+        keywords: [
+          'cinema', 'cinemark', 'ingresso', 'uci ', 'kinoplex', 'cinepolis', 'sympla', 'eventim',
+          'ticketmaster', 'ingresse', 'teatro', 'show', 'festa', 'balada', 'barzinho', 'pub ',
+          'cervejaria', 'boliche', 'kart', 'parque', 'hopi hari', 'viagem', 'hotel', 'pousada',
+          'resort', 'airbnb', 'booking', 'decolar', 'cvc ',
+        ],
+      },
+    ];
+
+    for (const rule of expenseRules) {
+      if (rule.keywords.some((kw) => normDesc.includes(kw) || normHint.includes(kw))) {
+        const matchedCat = findCategoryByIdOrKeyword(rule.id, rule.nameHints);
+        if (matchedCat) return { categoryId: matchedCat.id, matched: true };
+      }
+    }
+  }
+
+  // 3. Fallback: usa fallbackCategoryId se informado, ou categoria "Outros" do mesmo tipo, ou a primeira disponível
+  if (fallbackCategoryId && pool.some((c) => c.id === fallbackCategoryId)) {
+    return { categoryId: fallbackCategoryId, matched: false };
+  }
+
+  const outrosCat = findCategoryByIdOrKeyword(
+    type === 'income' ? 'cat-outros-receita' : 'cat-outros-despesa',
+    ['outro', 'outra', 'geral']
+  );
+  if (outrosCat) {
+    return { categoryId: outrosCat.id, matched: false };
+  }
+
+  return { categoryId: pool[0]?.id || '', matched: false };
+}
+
+/**
+ * Leitor rápido de CSV bancário (suporta delimitador vírgula ou ponto-e-vírgula e categorização por linha)
+ */
+export function parseCSVTransactions(
+  csvContent: string,
+  categories: FinanceCategory[] = [],
+  fallbackCategoryId?: string
+): {
   rows: ParsedCSVRow[];
   totalParsed: number;
   invalidCount: number;
+  autoCategorizedCount: number;
 } {
   const lines = csvContent.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (lines.length < 2) {
-    return { rows: [], totalParsed: 0, invalidCount: 0 };
+    return { rows: [], totalParsed: 0, invalidCount: 0, autoCategorizedCount: 0 };
   }
 
   // Detecta separador (',' ou ';')
@@ -370,8 +616,11 @@ export function parseCSVTransactions(csvContent: string): {
 
   // Procura índices de colunas
   let dateIdx = headers.findIndex((h) => h.includes('data') || h.includes('date'));
-  let descIdx = headers.findIndex((h) => h.includes('desc') || h.includes('hist') || h.includes('título') || h.includes('memo'));
-  let amountIdx = headers.findIndex((h) => h.includes('valor') || h.includes('amount') || h.includes('value'));
+  let descIdx = headers.findIndex(
+    (h) => h.includes('desc') || h.includes('hist') || h.includes('título') || h.includes('titulo') || h.includes('memo') || h.includes('estabelecimento') || h.includes('nome')
+  );
+  let amountIdx = headers.findIndex((h) => h.includes('valor') || h.includes('amount') || h.includes('value') || h.includes('quantia'));
+  const catIdx = headers.findIndex((h) => h.includes('cat') || h.includes('category') || h.includes('tipo'));
 
   // Se não encontrou por nome, assume padrão: col 0 = data, col 1 = desc, col 2 = valor
   if (dateIdx === -1) dateIdx = 0;
@@ -380,10 +629,13 @@ export function parseCSVTransactions(csvContent: string): {
 
   const rows: ParsedCSVRow[] = [];
   let invalidCount = 0;
+  let autoCategorizedCount = 0;
+
+  // Detecta se é um CSV de fatura de cartão (ex: Nubank: date,category,title,amount ou date,title,amount onde valores positivos são compras)
+  const isNubankCardFormat = headers.includes('title') && headers.includes('amount');
 
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
-    // Divide respeitando aspas simples
     const cols = line.split(separator).map((c) => c.replace(/["']/g, '').trim());
     if (cols.length < 2) {
       invalidCount++;
@@ -393,13 +645,19 @@ export function parseCSVTransactions(csvContent: string): {
     const rawDate = cols[dateIdx] || '';
     const rawDesc = cols[descIdx] || 'Lançamento importado';
     const rawAmount = cols[amountIdx] || '0';
+    const rawCat = catIdx !== -1 && catIdx !== dateIdx && catIdx !== descIdx && catIdx !== amountIdx ? cols[catIdx] : undefined;
+
+    // Ignora linhas de "Pagamento recebido" de fatura de cartão para não duplicar como receita/despesa indevida
+    const normDesc = normalizeText(rawDesc);
+    if (normDesc === 'pagamento recebido' || normDesc.startsWith('pagamento da fatura')) {
+      continue;
+    }
 
     // Normaliza data para YYYY-MM-DD
     let normalizedDate = '';
     if (rawDate.includes('/')) {
       const parts = rawDate.split('/');
       if (parts.length === 3) {
-        // DD/MM/YYYY
         if (parts[2].length === 4) {
           normalizedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
         }
@@ -418,13 +676,32 @@ export function parseCSVTransactions(csvContent: string): {
       continue;
     }
 
-    // Se o valor for negativo no extrato, é despesa; se positivo, receita
-    const isExpense = amountInCents < 0 || rawAmount.includes('-');
+    // Se for formato fatura de cartão (ex: Nubank), compras vêm positivas -> são despesas
+    const isExpense = isNubankCardFormat
+      ? !(amountInCents < 0 || rawAmount.includes('-'))
+      : amountInCents < 0 || rawAmount.includes('-');
+    const rowType: 'income' | 'expense' = isExpense ? 'expense' : 'income';
+
+    let categoryId = fallbackCategoryId;
+    let autoMatched = false;
+
+    if (categories.length > 0) {
+      const inferred = inferCategoryFromDescription(rawDesc, rowType, categories, rawCat, fallbackCategoryId);
+      categoryId = inferred.categoryId;
+      autoMatched = inferred.matched;
+      if (inferred.matched) {
+        autoCategorizedCount++;
+      }
+    }
+
     rows.push({
       date: normalizedDate,
       description: rawDesc,
       amountInCents: Math.abs(amountInCents),
-      type: isExpense ? 'expense' : 'income',
+      type: rowType,
+      categoryId,
+      autoMatched,
+      rawCategory: rawCat,
     });
   }
 
@@ -432,6 +709,7 @@ export function parseCSVTransactions(csvContent: string): {
     rows,
     totalParsed: rows.length,
     invalidCount,
+    autoCategorizedCount,
   };
 }
 
