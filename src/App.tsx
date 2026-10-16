@@ -481,7 +481,7 @@ export function App() {
             }`}
           >
             <Layers className="w-5 h-5" />
-            Quartel General
+            Dashboard
           </button>
           <button
             onClick={() => setActiveTab('focus')}
@@ -2700,7 +2700,7 @@ export function App() {
           className="flex items-center gap-2 overflow-x-auto scrollbar-none px-2 py-0.5"
         >
           {[
-            { id: 'home' as const, label: 'QG', icon: Layers, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
+            { id: 'home' as const, label: 'Dashboard', icon: Layers, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
             { id: 'focus' as const, label: 'Foco', icon: Zap, activeColor: 'text-amber-600 bg-amber-50/90 border-amber-200 shadow-xs' },
             { id: 'gym' as const, label: 'Treino', icon: Dumbbell, activeColor: 'text-rose-600 bg-rose-50/90 border-rose-200 shadow-xs' },
             { id: 'habits' as const, label: 'Hábitos', icon: CheckSquare, activeColor: 'text-emerald-600 bg-emerald-50/90 border-emerald-200 shadow-xs' },
