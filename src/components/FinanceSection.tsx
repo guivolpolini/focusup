@@ -224,6 +224,7 @@ export function FinanceSection() {
   const [recAmountStr, setRecAmountStr] = useState('');
   const [recCategoryId, setRecCategoryId] = useState('');
   const [recFirstDueDate, setRecFirstDueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [recHasDueDate, setRecHasDueDate] = useState<boolean>(true);
   const [recFrequency, setRecFrequency] = useState<FinanceRecurringFrequency>('monthly');
   const [recPaymentMethod, setRecPaymentMethod] = useState<FinancePaymentMethod>('pix');
   const [recCardId, setRecCardId] = useState('');
@@ -462,6 +463,7 @@ export function FinanceSection() {
       categories.find((c) => c.type === 'expense')?.id ||
       '';
     setRecCategoryId(defaultExpCat);
+    setRecHasDueDate(true);
     setRecFirstDueDate(`${currentMonthKey}-${new Date().toISOString().slice(8, 10)}`);
     setRecFrequency('monthly');
     setRecPaymentMethod('pix');
@@ -476,7 +478,9 @@ export function FinanceSection() {
     setRecName(rec.name);
     setRecAmountStr((rec.amountInCents / 100).toFixed(2).replace('.', ','));
     setRecCategoryId(rec.categoryId);
-    setRecFirstDueDate(rec.firstDueDate);
+    const hasDue = Boolean(rec.firstDueDate && rec.firstDueDate.trim() !== '');
+    setRecHasDueDate(hasDue);
+    setRecFirstDueDate(rec.firstDueDate || '');
     setRecFrequency(rec.frequency);
     setRecPaymentMethod(rec.paymentMethod);
     setRecCardId(rec.cardId || cards[0]?.id || '');
@@ -488,8 +492,10 @@ export function FinanceSection() {
   const handleSaveRecurring = async (e: React.FormEvent) => {
     e.preventDefault();
     const amountInCents = parseBRLToCents(recAmountStr);
-    if (!recName.trim() || amountInCents <= 0 || !recCategoryId || !recFirstDueDate) return;
+    if (!recName.trim() || amountInCents <= 0 || !recCategoryId) return;
+    if (recHasDueDate && (!recFirstDueDate || recFirstDueDate.trim() === '')) return;
 
+    const effectiveDueDate = recHasDueDate && recFirstDueDate ? recFirstDueDate : undefined;
     const now = Date.now();
 
     if (editingRecurring) {
@@ -497,7 +503,7 @@ export function FinanceSection() {
         name: recName.trim(),
         amountInCents,
         categoryId: recCategoryId,
-        firstDueDate: recFirstDueDate,
+        firstDueDate: effectiveDueDate,
         frequency: recFrequency,
         paymentMethod: recPaymentMethod,
         cardId: recPaymentMethod === 'credit' ? recCardId : undefined,
@@ -514,7 +520,7 @@ export function FinanceSection() {
       name: recName.trim(),
       amountInCents,
       categoryId: recCategoryId,
-      firstDueDate: recFirstDueDate,
+      firstDueDate: effectiveDueDate,
       frequency: recFrequency,
       paymentMethod: recPaymentMethod,
       cardId: recPaymentMethod === 'credit' ? recCardId : undefined,
@@ -1417,10 +1423,14 @@ export function FinanceSection() {
                             >
                               {recurringSummary.nextDueOccurrence.status === 'overdue'
                                 ? 'Conta em Atraso'
-                                : 'Próximo Vencimento'}
+                                : recurringSummary.nextDueOccurrence.dueDate
+                                ? 'Próximo Vencimento'
+                                : 'Gasto Fixo Mensal'}
                             </span>
                             <span className="text-xs font-semibold text-slate-600">
-                              Vence em {formatDateBR(recurringSummary.nextDueOccurrence.dueDate)}
+                              {recurringSummary.nextDueOccurrence.dueDate
+                                ? `Vence em ${formatDateBR(recurringSummary.nextDueOccurrence.dueDate)}`
+                                : 'Sem vencimento fixo'}
                             </span>
                           </div>
                           <div className="text-sm font-bold text-slate-900">
@@ -1507,7 +1517,7 @@ export function FinanceSection() {
                             {item.title}
                           </div>
                           <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                            <span>Vence {formatDateBR(item.dueDate)}</span>
+                            <span>{item.dueDate ? `Vence ${formatDateBR(item.dueDate)}` : 'Sem vencimento fixo'}</span>
                             <span>•</span>
                             <span
                               className={`font-semibold ${
@@ -2290,7 +2300,7 @@ export function FinanceSection() {
                               {cat?.name || 'Outros'}
                             </span>
                             <span>•</span>
-                            <span>Vencimento: {formatDateBR(occ.dueDate)}</span>
+                            <span>{occ.dueDate ? `Vencimento: ${formatDateBR(occ.dueDate)}` : 'Sem vencimento fixo'}</span>
                             <span>•</span>
                             <span>
                               {occ.paymentMethod === 'credit'
@@ -2431,7 +2441,7 @@ export function FinanceSection() {
                           • {cat?.name || 'Outros'}
                         </div>
                         <div className="text-[10px] text-slate-400">
-                          1º vencimento: {formatDateBR(rec.firstDueDate)}
+                          {rec.firstDueDate ? `1º vencimento: ${formatDateBR(rec.firstDueDate)}` : 'Sem vencimento fixo'}
                         </div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
@@ -2876,16 +2886,48 @@ export function FinanceSection() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    1º Vencimento *
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={recFirstDueDate}
-                    onChange={(e) => setRecFirstDueDate(e.target.value)}
-                    className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700">
+                      1º Vencimento
+                    </label>
+                    <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={!recHasDueDate}
+                        onChange={(e) => {
+                          const withoutDue = e.target.checked;
+                          setRecHasDueDate(!withoutDue);
+                          if (withoutDue) setRecFirstDueDate('');
+                          else setRecFirstDueDate(new Date().toISOString().slice(0, 10));
+                        }}
+                        className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5"
+                      />
+                      <span>Sem vencimento</span>
+                    </label>
+                  </div>
+                  {recHasDueDate ? (
+                    <input
+                      type="date"
+                      required={recHasDueDate}
+                      value={recFirstDueDate}
+                      onChange={(e) => setRecFirstDueDate(e.target.value)}
+                      className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl outline-none focus:border-emerald-500"
+                    />
+                  ) : (
+                    <div className="w-full text-xs px-3 py-2 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-slate-500 italic flex items-center justify-between">
+                      <span>Sem vencimento fixo</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRecHasDueDate(true);
+                          setRecFirstDueDate(new Date().toISOString().slice(0, 10));
+                        }}
+                        className="text-[10px] text-emerald-600 font-semibold hover:underline"
+                      >
+                        Definir data
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -3001,7 +3043,7 @@ export function FinanceSection() {
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-0.5">
               <div className="text-sm font-bold text-slate-800">{payingOccurrence.name}</div>
               <div className="text-xs text-slate-500">
-                Vencimento: {formatDateBR(payingOccurrence.dueDate)} • Valor previsto:{' '}
+                {payingOccurrence.dueDate ? `Vencimento: ${formatDateBR(payingOccurrence.dueDate)} • ` : 'Sem vencimento fixo • '}Valor previsto:{' '}
                 {formatCentsToBRL(payingOccurrence.expectedAmountInCents)}
               </div>
             </div>

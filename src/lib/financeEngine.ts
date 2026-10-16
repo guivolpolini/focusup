@@ -778,7 +778,7 @@ export interface RecurringOccurrence {
   name: string;
   categoryId: string;
   expectedAmountInCents: number;
-  dueDate: string; // YYYY-MM-DD
+  dueDate?: string; // YYYY-MM-DD (vazio se o gasto não tiver vencimento fixo)
   frequency: FinanceRecurringFrequency;
   paymentMethod: FinancePaymentMethod;
   cardId?: string;
@@ -840,7 +840,47 @@ export function getRecurringOccurrencesForMonth(
   const occurrences: RecurringOccurrence[] = [];
 
   for (const rec of recurringExpenses) {
-    if (!rec.firstDueDate || rec.firstDueDate.length < 10) continue;
+    // Se o gasto fixo não tiver primeiro vencimento definido (apenas gasto recorrente mensal contínuo)
+    if (!rec.firstDueDate || rec.firstDueDate.trim() === '') {
+      const occurrenceKey = `${rec.id}_${monthKey}`;
+      const paidTx = paidByOccurrenceKey.get(occurrenceKey);
+
+      // Não projeta em meses anteriores à criação da recorrência (a não ser que tenha sido paga naquele mês)
+      const createdMonthKey = rec.createdAt ? new Date(rec.createdAt).toISOString().slice(0, 7) : monthKey;
+      if (monthKey < createdMonthKey && !paidTx) {
+        continue;
+      }
+
+      let status: RecurringOccurrenceStatus;
+      if (paidTx) {
+        status = 'paid';
+      } else if (rec.status === 'paused') {
+        status = 'paused';
+      } else {
+        // Sem data de vencimento fixa, nunca fica em atraso por data; fica pendente para quitação no mês
+        status = 'pending';
+      }
+
+      occurrences.push({
+        occurrenceKey,
+        recurringId: rec.id,
+        name: rec.name,
+        categoryId: rec.categoryId,
+        expectedAmountInCents: rec.amountInCents,
+        dueDate: '',
+        frequency: rec.frequency,
+        paymentMethod: rec.paymentMethod,
+        cardId: rec.cardId,
+        notes: rec.notes,
+        status,
+        paidTransactionId: paidTx?.id,
+        paidAmountInCents: paidTx?.amountInCents,
+        paidDate: paidTx?.date,
+      });
+      continue;
+    }
+
+    if (rec.firstDueDate.length < 10) continue;
     const [sYearStr, sMonthStr, sDayStr] = rec.firstDueDate.slice(0, 10).split('-');
     const startYear = parseInt(sYearStr, 10);
     const startMonth = parseInt(sMonthStr, 10);
@@ -924,7 +964,11 @@ export function getRecurringOccurrencesForMonth(
     }
   }
 
-  occurrences.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.name.localeCompare(b.name));
+  occurrences.sort((a, b) => {
+    const aDate = a.dueDate || '9999-99-99';
+    const bDate = b.dueDate || '9999-99-99';
+    return aDate.localeCompare(bDate) || a.name.localeCompare(b.name);
+  });
 
   let totalPaidInCents = 0;
   let totalPendingInCents = 0;
@@ -947,7 +991,9 @@ export function getRecurringOccurrencesForMonth(
 
   const totalExpectedInCents = totalPaidInCents + totalPendingInCents;
   const nextDueOccurrence =
-    occurrences.find((o) => o.status === 'overdue' || o.status === 'pending') || null;
+    occurrences.find((o) => (o.status === 'overdue' || o.status === 'pending') && !!o.dueDate) ||
+    occurrences.find((o) => o.status === 'pending') ||
+    null;
 
   return {
     monthKey,
@@ -1182,7 +1228,7 @@ export interface UpcomingCommitmentItem {
   kind: 'recurring' | 'card_invoice';
   title: string;
   amountInCents: number;
-  dueDate: string; // YYYY-MM-DD
+  dueDate?: string; // YYYY-MM-DD (ou vazio se sem data fixa)
   status: 'overdue' | 'pending' | 'paid';
   recurringOccurrence?: RecurringOccurrence;
   cardId?: string;
@@ -1235,7 +1281,9 @@ export function getUpcomingCommitments(
     const aPaid = a.status === 'paid' ? 1 : 0;
     const bPaid = b.status === 'paid' ? 1 : 0;
     if (aPaid !== bPaid) return aPaid - bPaid;
-    return a.dueDate.localeCompare(b.dueDate);
+    const aDate = a.dueDate || '9999-99-99';
+    const bDate = b.dueDate || '9999-99-99';
+    return aDate.localeCompare(bDate) || a.title.localeCompare(b.title);
   });
 
   return items;

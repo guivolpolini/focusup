@@ -509,7 +509,7 @@ export interface FinanceRecurringExpense {
   name: string;
   amountInCents: number; // Valor previsto em centavos
   categoryId: string;
-  firstDueDate: string; // YYYY-MM-DD (data do primeiro vencimento)
+  firstDueDate?: string; // YYYY-MM-DD (data do primeiro vencimento, opcional se não tiver vencimento fixo)
   frequency: FinanceRecurringFrequency;
   paymentMethod: FinancePaymentMethod;
   cardId?: string; // Opcional (se paymentMethod === 'credit')

@@ -271,6 +271,58 @@ describe('financeEngine', () => {
       expect(summaryAfter.totalPendingInCents).toBe(12000); // resta apenas Internet
     });
 
+    it('suporta gastos fixos recorrentes sem data de vencimento fixa (apenas valor recorrente)', () => {
+      const appleSubscription: FinanceRecurringExpense = {
+        id: 'rec_apple',
+        name: 'Apple Services',
+        amountInCents: 1990, // R$ 19,90
+        categoryId: 'cat_assinaturas',
+        frequency: 'monthly',
+        paymentMethod: 'credit',
+        status: 'active',
+        createdAt: new Date('2026-10-01').getTime(),
+        updatedAt: new Date('2026-10-01').getTime(),
+      };
+
+      const summary = getRecurringOccurrencesForMonth(
+        [appleSubscription],
+        [],
+        '2026-10',
+        '2026-10-16'
+      );
+
+      expect(summary.occurrences).toHaveLength(1);
+      const occ = summary.occurrences[0];
+      expect(occ.name).toBe('Apple Services');
+      expect(occ.dueDate).toBe('');
+      // Sem data fixa, nunca fica em atraso; fica pendente para quitação no mês
+      expect(occ.status).toBe('pending');
+      expect(summary.totalPendingInCents).toBe(1990);
+      expect(summary.nextDueOccurrence).not.toBeNull();
+      expect(summary.nextDueOccurrence?.recurringId).toBe('rec_apple');
+
+      // Dar baixa sem vencimento fixo
+      const paidTx = buildRecurringPaymentTransaction({
+        occurrence: occ,
+        paidDate: '2026-10-16',
+        paidAmountInCents: 1990,
+      });
+
+      expect(paidTx.occurrenceKey).toBe('rec_apple_2026-10');
+
+      const summaryPaid = getRecurringOccurrencesForMonth(
+        [appleSubscription],
+        [paidTx],
+        '2026-10',
+        '2026-10-16'
+      );
+
+      expect(summaryPaid.paidCount).toBe(1);
+      expect(summaryPaid.pendingCount).toBe(0);
+      expect(summaryPaid.totalPaidInCents).toBe(1990);
+      expect(summaryPaid.totalPendingInCents).toBe(0);
+    });
+
     it('calcula proporção Fixos vs Variáveis e evolução/comparativo mensal com precisão', () => {
       const aluguelTx: FinanceTransaction = {
         id: 'tx_rec_rec_aluguel_2026-10-10',
