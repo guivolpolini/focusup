@@ -923,9 +923,11 @@ export function FinanceSection() {
                 ? 'Registrar lançamento por comando de voz'
                 : 'Reconhecimento de voz não suportado pelo navegador'
             }
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold shadow-xs transition-all active:scale-95"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-indigo-700 hover:from-violet-700 hover:to-indigo-800 text-white text-xs sm:text-sm font-bold shadow-md shadow-indigo-500/30 hover:shadow-lg hover:shadow-indigo-500/45 hover:-translate-y-0.5 active:translate-y-0 transition-all ring-2 ring-indigo-400/25"
           >
-            <Mic className="w-4 h-4 text-indigo-600" />
+            <span className="flex items-center justify-center w-5 h-5 rounded-md bg-white/20">
+              <Mic className="w-3.5 h-3.5 text-white animate-pulse" />
+            </span>
             <span>Registrar por Voz</span>
           </button>
           <button
@@ -3989,6 +3991,23 @@ export function FinanceSection() {
           </div>
         </div>
       )}
+
+      {/* Botão Flutuante de Voz (FAB) */}
+      <button
+        type="button"
+        onClick={handleStartVoice}
+        title={
+          isSpeechSupported
+            ? 'Registrar lançamento por comando de voz'
+            : 'Reconhecimento de voz não suportado pelo navegador'
+        }
+        className="fixed bottom-20 md:bottom-8 right-5 md:right-8 z-40 flex items-center gap-2.5 px-4 sm:px-5 py-3 sm:py-3.5 rounded-full bg-gradient-to-r from-violet-600 via-indigo-600 to-indigo-700 hover:from-violet-700 hover:to-indigo-800 text-white font-bold text-xs sm:text-sm shadow-xl shadow-indigo-600/35 hover:shadow-indigo-600/50 hover:scale-105 active:scale-95 transition-all duration-200 border border-white/20 group cursor-pointer"
+      >
+        <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white/20 group-hover:bg-white/30 transition-colors">
+          <Mic className="w-4 h-4 text-white animate-pulse" />
+        </span>
+        <span className="tracking-wide">Registrar por Voz</span>
+      </button>
     </div>
   );
 }
