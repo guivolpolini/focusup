@@ -660,6 +660,9 @@ export function FinanceSection() {
     if (showRecurringModal) {
       setRecCategoryId(newId);
     }
+    if (showCSVModal) {
+      setCsvDefaultCategory(newId);
+    }
 
     setNewCatName('');
     setShowNewCategoryModal(false);
@@ -3371,8 +3374,8 @@ export function FinanceSection() {
       {/* MODAL: GERENCIAR E CRIAR CATEGORIAS */}
       {/* ============================================================ */}
       {showNewCategoryModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4 max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-slate-900">Categorias Financeiras</h3>
@@ -3721,8 +3724,11 @@ export function FinanceSection() {
             <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
-                onClick={() => setShowNewCategoryModal(true)}
-                className="text-xs font-semibold text-emerald-600 hover:text-emerald-700"
+                onClick={() => {
+                  setNewCatType(csvDefaultType);
+                  setShowNewCategoryModal(true);
+                }}
+                className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 hover:underline"
               >
                 + Criar nova categoria
               </button>
