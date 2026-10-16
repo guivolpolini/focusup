@@ -8,6 +8,7 @@ export interface Subject {
   name: string;
   description?: string;
   color: string;
+  icon?: string;
   priority: Priority;
   category?: 'college' | 'self_study'; // 'college' para faculdade, 'self_study' para autodidata
   targetMinutesPerWeek: number;
