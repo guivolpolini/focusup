@@ -27,7 +27,6 @@ import {
   formatStudyDuration,
   formatStudyRelativeDate,
   buildStudySession,
-  DEFAULT_STUDY_SUGGESTIONS,
   STUDY_COLOR_PRESETS,
   STUDY_ICON_PRESETS,
 } from '../lib/studyEngine';
@@ -235,31 +234,6 @@ export function StudySection({ onStartFocus }: StudySectionProps) {
     }
   };
 
-  // Adicionar uma das sugestões padrão com 1 clique
-  const handleAddSuggestion = async (sug: typeof DEFAULT_STUDY_SUGGESTIONS[0]) => {
-    const alreadyExists = subjects.some(
-      (s) => s.name.toLowerCase().trim() === sug.name.toLowerCase().trim()
-    );
-    if (alreadyExists) {
-      alert(`A matéria "${sug.name}" já está cadastrada!`);
-      return;
-    }
-
-    const now = Date.now();
-    await db.subjects.add({
-      id: `sub_${now}_${Math.random().toString(36).substring(2, 7)}`,
-      name: sug.name,
-      color: sug.color,
-      icon: sug.icon,
-      priority: 'medium',
-      category: 'self_study',
-      targetMinutesPerWeek: 120,
-      archived: false,
-      createdAt: now,
-      updatedAt: now,
-    });
-  };
-
   // Preset rápido de tempo no modal de estudo
   const handleSetQuickDuration = (h: number, m: number) => {
     setLogHours(h);
@@ -381,38 +355,6 @@ export function StudySection({ onStartFocus }: StudySectionProps) {
           </button>
         </div>
 
-        {/* Sugestões Rápidas (quando há sugestões não cadastradas ainda) */}
-        {DEFAULT_STUDY_SUGGESTIONS.some(
-          (sug) => !subjects.some((s) => s.name.toLowerCase() === sug.name.toLowerCase())
-        ) && (
-          <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <span className="font-semibold text-slate-700 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Sugestões para adicionar em 1 clique:
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {DEFAULT_STUDY_SUGGESTIONS.filter(
-                (sug) => !subjects.some((s) => s.name.toLowerCase() === sug.name.toLowerCase())
-              ).map((sug) => (
-                <button
-                  key={sug.name}
-                  onClick={() => handleAddSuggestion(sug)}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold bg-white border border-slate-200/80 text-slate-700 hover:border-indigo-400 hover:text-indigo-700 hover:bg-indigo-50/50 transition active:scale-95 shadow-2xs"
-                  title={`Adicionar "${sug.name}"`}
-                >
-                  <span
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: sug.color }}
-                  />
-                  {sug.name}
-                  <Plus className="w-3 h-3 text-slate-400" />
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Lista de Cards de Matérias */}
         {subjects.length === 0 ? (
           <div className="py-12 text-center text-slate-400 space-y-3">
@@ -422,7 +364,7 @@ export function StudySection({ onStartFocus }: StudySectionProps) {
             <div className="space-y-1">
               <p className="text-sm font-bold text-slate-700">Nenhuma matéria cadastrada ainda</p>
               <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                Cadastre suas matérias ou clique em uma das sugestões acima para começar a registrar seus estudos.
+                Cadastre suas matérias para começar a registrar seus estudos.
               </p>
             </div>
             <button
