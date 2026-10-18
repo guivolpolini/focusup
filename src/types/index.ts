@@ -557,6 +557,8 @@ export type AgendaReminderOffset = 'none' | 'at_time' | '5m' | '15m' | '30m' | '
 
 export type AgendaRecurrence = 'never' | 'daily' | 'weekly' | 'monthly' | 'yearly';
 
+export type AgendaEventStatus = 'pending' | 'completed' | 'postponed';
+
 export interface AgendaEvent {
   id: string;
   title: string;
@@ -568,8 +570,11 @@ export interface AgendaEvent {
   subjectId?: string; // Vínculo opcional com matéria de Estudos
   reminder: AgendaReminderOffset;
   recurrence: AgendaRecurrence;
-  completed: boolean;
+  status?: AgendaEventStatus; // 'pending' | 'completed' | 'postponed'
+  completed: boolean; // Mantido para compatibilidade total (true se status === 'completed')
   completedAt?: number;
+  postponedAt?: number;
+  originalDate?: string; // Data anterior se o evento foi adiado
   createdAt: number;
   updatedAt: number;
 }
@@ -586,8 +591,11 @@ export interface AgendaOccurrence {
   subjectId?: string;
   reminder: AgendaReminderOffset;
   recurrence: AgendaRecurrence;
+  status: AgendaEventStatus;
   completed: boolean;
   completedAt?: number;
+  postponedAt?: number;
+  originalDate?: string;
   isRecurringInstance: boolean;
 }
 

@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import confetti from 'canvas-confetti';
 import {
   CalendarDays,
+  CalendarClock,
   Clock,
   CheckCircle2,
   Circle,
@@ -10,6 +11,7 @@ import {
   Plus,
   Bell,
   Sparkles,
+  X,
 } from 'lucide-react';
 import { db } from '../lib/db';
 import {
@@ -17,8 +19,11 @@ import {
   getAgendaCategoryMeta,
   formatAgendaTime,
   formatAgendaDateFullBR,
+  formatAgendaDateBR,
+  calculatePostponedDate,
+  resolveEventStatus,
 } from '../lib/agendaEngine';
-import type { AgendaOccurrence } from '../types';
+import type { AgendaOccurrence, AgendaEventStatus } from '../types';
 
 interface AgendaCardProps {
   onOpenAgendaPage: () => void;
@@ -32,41 +37,67 @@ export function AgendaCard({ onOpenAgendaPage, onOpenNewEventModal }: AgendaCard
   // Consulta reativa do Dexie
   const events = useLiveQuery(() => db.agendaEvents.toArray()) || [];
 
+  // Estado para modal rápido de adiamento
+  const [postponingOcc, setPostponingOcc] = useState<AgendaOccurrence | null>(null);
+
   // Ocorrências de hoje
   const todayOccurrences = useMemo(() => {
     return getEventOccurrencesForRange(events, todayStr, todayStr);
   }, [events, todayStr]);
 
   const totalCount = todayOccurrences.length;
-  const completedCount = todayOccurrences.filter((o) => o.completed).length;
-  const pendingCount = totalCount - completedCount;
+  const completedCount = todayOccurrences.filter((o) => o.status === 'completed' || o.completed).length;
+  const postponedCount = todayOccurrences.filter((o) => o.status === 'postponed').length;
+  const pendingCount = totalCount - completedCount - postponedCount;
 
   // Próximo evento não concluído de hoje
   const nextEvent = useMemo(() => {
-    return todayOccurrences.find((o) => !o.completed);
+    return todayOccurrences.find((o) => o.status !== 'completed' && !o.completed);
   }, [todayOccurrences]);
 
-  // Toggle de conclusão de evento
+  // Toggle de conclusão de evento (Feito <-> Pendente)
   const handleToggleComplete = async (occ: AgendaOccurrence) => {
     const master = events.find((e) => e.id === occ.masterEventId);
     if (!master) return;
 
-    const newCompleted = !occ.completed;
+    const currentStatus = resolveEventStatus(master);
+    const newStatus: AgendaEventStatus = currentStatus === 'completed' ? 'pending' : 'completed';
     const now = Date.now();
 
     await db.agendaEvents.update(master.id, {
-      completed: newCompleted,
-      completedAt: newCompleted ? now : undefined,
+      status: newStatus,
+      completed: newStatus === 'completed',
+      completedAt: newStatus === 'completed' ? now : undefined,
       updatedAt: now,
     });
 
-    if (newCompleted) {
+    if (newStatus === 'completed') {
       try {
         confetti({ particleCount: 30, spread: 50, origin: { y: 0.8 } });
       } catch {
         // Ignorar se bloqueado
       }
     }
+  };
+
+  // Adiar compromisso rapidamente
+  const handlePostpone = async (occ: AgendaOccurrence, days: number | 'markOnly') => {
+    const master = events.find((e) => e.id === occ.masterEventId);
+    if (!master) return;
+
+    const targetDate = days === 'markOnly' ? occ.date : calculatePostponedDate(occ.date, days);
+    const now = Date.now();
+
+    await db.agendaEvents.update(master.id, {
+      status: 'postponed',
+      completed: false,
+      date: targetDate,
+      originalDate: targetDate !== occ.date ? occ.date : (master.originalDate || occ.date),
+      postponedAt: now,
+      updatedAt: now,
+    });
+
+    setPostponingOcc(null);
   };
 
   return (
@@ -128,11 +159,23 @@ export function AgendaCard({ onOpenAgendaPage, onOpenNewEventModal }: AgendaCard
             </span>
           </div>
 
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-slate-900">{totalCount}</span>
-            <span className="text-xs text-slate-400 font-semibold">
-              evento(s) agendado(s) hoje
-            </span>
+          <div className="flex items-baseline justify-between flex-wrap gap-1">
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-black text-slate-900">{totalCount}</span>
+              <span className="text-xs text-slate-400 font-semibold">
+                evento(s) agendado(s) hoje
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] font-bold">
+              <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200">
+                {completedCount} feito(s)
+              </span>
+              {postponedCount > 0 && (
+                <span className="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200">
+                  {postponedCount} adiado(s)
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Destaque do próximo evento */}
@@ -165,20 +208,28 @@ export function AgendaCard({ onOpenAgendaPage, onOpenNewEventModal }: AgendaCard
                 return (
                   <div
                     key={occ.id}
-                    onClick={() => handleToggleComplete(occ)}
-                    className={`p-2 rounded-xl border transition-all cursor-pointer select-none flex items-center justify-between gap-2.5 text-xs ${
-                      occ.completed
+                    className={`p-2 rounded-xl border transition-all select-none flex items-center justify-between gap-2.5 text-xs ${
+                      occ.status === 'completed'
                         ? 'bg-slate-50 border-slate-200/60 text-slate-400'
+                        : occ.status === 'postponed'
+                        ? 'bg-amber-50/40 border-amber-300 text-slate-800'
                         : 'bg-white border-slate-200/80 hover:bg-slate-50/80 text-slate-800'
                     }`}
                   >
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div
+                      onClick={() => handleToggleComplete(occ)}
+                      className="flex items-center gap-2 min-w-0 cursor-pointer flex-1"
+                    >
                       <div
                         className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition ${
-                          occ.completed ? 'text-emerald-500' : 'text-slate-300'
+                          occ.status === 'completed'
+                            ? 'text-emerald-500'
+                            : occ.status === 'postponed'
+                            ? 'text-amber-500'
+                            : 'text-slate-300 hover:text-emerald-500'
                         }`}
                       >
-                        {occ.completed ? (
+                        {occ.status === 'completed' ? (
                           <CheckCircle2 className="w-4 h-4 fill-emerald-500 text-white" />
                         ) : (
                           <Circle className="w-4 h-4 stroke-[1.8]" />
@@ -186,12 +237,19 @@ export function AgendaCard({ onOpenAgendaPage, onOpenNewEventModal }: AgendaCard
                       </div>
 
                       <div className="truncate">
-                        <div
-                          className={`font-bold text-[11px] truncate ${
-                            occ.completed ? 'line-through text-slate-400' : 'text-slate-800'
-                          }`}
-                        >
-                          {occ.title}
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span
+                            className={`font-bold text-[11px] truncate ${
+                              occ.status === 'completed' ? 'line-through text-slate-400' : 'text-slate-800'
+                            }`}
+                          >
+                            {occ.title}
+                          </span>
+                          {occ.status === 'postponed' && (
+                            <span className="text-[9px] font-black px-1.5 py-0.2 rounded-md bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
+                              Adiado
+                            </span>
+                          )}
                         </div>
                         <div className="text-[9px] text-slate-400 flex items-center gap-1.5">
                           <span>{formatAgendaTime(occ.startTime, occ.endTime)}</span>
@@ -206,11 +264,25 @@ export function AgendaCard({ onOpenAgendaPage, onOpenNewEventModal }: AgendaCard
                       </div>
                     </div>
 
-                    {occ.reminder !== 'none' && (
-                      <span className="p-1 rounded-md bg-slate-100 text-slate-400 shrink-0" title="Lembrete ativo">
-                        <Bell className="w-3 h-3 text-indigo-500" />
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPostponingOcc(occ);
+                        }}
+                        className="p-1 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition"
+                        title="Adiar compromisso"
+                      >
+                        <CalendarClock className="w-3.5 h-3.5 text-amber-600" />
+                      </button>
+
+                      {occ.reminder !== 'none' && (
+                        <span className="p-1 rounded-md bg-slate-100 text-slate-400 shrink-0" title="Lembrete ativo">
+                          <Bell className="w-3 h-3 text-indigo-500" />
+                        </span>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -236,6 +308,66 @@ export function AgendaCard({ onOpenAgendaPage, onOpenNewEventModal }: AgendaCard
           <ChevronRight className="w-3.5 h-3.5 ml-auto text-indigo-500" />
         </button>
       </div>
+
+      {/* Modal Rápido de Adiamento no Dashboard */}
+      {postponingOcc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-xl border border-slate-100 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-1.5 text-slate-900 font-extrabold text-sm">
+                <CalendarClock className="w-4 h-4 text-amber-600" />
+                <span>Adiar Compromisso</span>
+              </div>
+              <button
+                onClick={() => setPostponingOcc(null)}
+                className="p-1 rounded-xl text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs">
+              <p className="font-bold text-slate-900 truncate">{postponingOcc.title}</p>
+              <p className="text-[10px] text-slate-500">
+                Data agendada: {formatAgendaDateBR(postponingOcc.date)}
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                onClick={() => handlePostpone(postponingOcc, 1)}
+                className="w-full text-left px-3 py-2 rounded-xl border border-slate-200 hover:border-amber-400 hover:bg-amber-50/50 text-xs font-bold text-slate-800 flex items-center justify-between transition"
+              >
+                <span>Adiar para Amanhã (+1d)</span>
+                <span className="text-[10px] text-slate-400">
+                  {formatAgendaDateBR(calculatePostponedDate(postponingOcc.date, 1))}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handlePostpone(postponingOcc, 7)}
+                className="w-full text-left px-3 py-2 rounded-xl border border-slate-200 hover:border-amber-400 hover:bg-amber-50/50 text-xs font-bold text-slate-800 flex items-center justify-between transition"
+              >
+                <span>Adiar para Próxima Semana (+7d)</span>
+                <span className="text-[10px] text-slate-400">
+                  {formatAgendaDateBR(calculatePostponedDate(postponingOcc.date, 7))}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handlePostpone(postponingOcc, 'markOnly')}
+                className="w-full text-left px-3 py-2 rounded-xl border border-slate-200 hover:border-amber-400 hover:bg-amber-50/50 text-xs font-bold text-slate-800 flex items-center justify-between transition"
+              >
+                <span>Apenas Marcar como Adiado</span>
+                <span className="text-[10px] text-slate-400">Mantém hoje</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

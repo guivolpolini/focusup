@@ -4,6 +4,7 @@ import confetti from 'canvas-confetti';
 import {
   CalendarDays,
   Calendar as CalendarIcon,
+  CalendarClock,
   Clock,
   Plus,
   Trash2,
@@ -34,6 +35,8 @@ import {
   formatAgendaDateFullBR,
   getUpcomingEvents,
   calculateReminderTimestamp,
+  calculatePostponedDate,
+  resolveEventStatus,
 } from '../lib/agendaEngine';
 import {
   requestNotificationPermission,
@@ -46,6 +49,7 @@ import type {
   AgendaRecurrence,
   AgendaEvent,
   AgendaOccurrence,
+  AgendaEventStatus,
 } from '../types';
 
 export function AgendaSection() {
@@ -61,7 +65,12 @@ export function AgendaSection() {
 
   // Filtros
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'pending' | 'completed' | 'postponed'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Modal de Adiar Compromisso
+  const [postponingOcc, setPostponingOcc] = useState<AgendaOccurrence | null>(null);
+  const [postponeTargetDate, setPostponeTargetDate] = useState<string>(todayStr);
 
   // Notificações
   const [notifStatus, setNotifStatus] = useState<NotificationPermission | 'unsupported'>('default');
@@ -80,6 +89,7 @@ export function AgendaSection() {
   const [formSubjectId, setFormSubjectId] = useState<string>('');
   const [formReminder, setFormReminder] = useState<AgendaReminderOffset>('15m');
   const [formRecurrence, setFormRecurrence] = useState<AgendaRecurrence>('never');
+  const [formStatus, setFormStatus] = useState<AgendaEventStatus>('pending');
   const [formDescription, setFormDescription] = useState<string>('');
 
   // Consultas Reativas do Dexie
@@ -122,10 +132,13 @@ export function AgendaSection() {
     return getEventOccurrencesForRange(events, visibleGridRange.startStr, visibleGridRange.endStr);
   }, [events, visibleGridRange]);
 
-  // Ocorrências filtradas por categoria e busca
+  // Ocorrências filtradas por categoria, status e busca
   const filteredOccurrences = useMemo(() => {
     return visibleOccurrences.filter((occ) => {
       if (selectedCategoryFilter !== 'all' && occ.category !== selectedCategoryFilter) {
+        return false;
+      }
+      if (selectedStatusFilter !== 'all' && occ.status !== selectedStatusFilter) {
         return false;
       }
       if (searchQuery.trim()) {
@@ -136,7 +149,7 @@ export function AgendaSection() {
       }
       return true;
     });
-  }, [visibleOccurrences, selectedCategoryFilter, searchQuery]);
+  }, [visibleOccurrences, selectedCategoryFilter, selectedStatusFilter, searchQuery]);
 
   // Mapa de ocorrências por data YYYY-MM-DD
   const occurrencesByDate = useMemo(() => {
@@ -160,6 +173,7 @@ export function AgendaSection() {
     return getUpcomingEvents(
       wideOccs.filter((o) => {
         if (selectedCategoryFilter !== 'all' && o.category !== selectedCategoryFilter) return false;
+        if (selectedStatusFilter !== 'all' && o.status !== selectedStatusFilter) return false;
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase().trim();
           return o.title.toLowerCase().includes(q) || (o.description && o.description.toLowerCase().includes(q));
@@ -169,7 +183,7 @@ export function AgendaSection() {
       todayStr,
       10
     );
-  }, [events, todayStr, selectedCategoryFilter, searchQuery]);
+  }, [events, todayStr, selectedCategoryFilter, selectedStatusFilter, searchQuery]);
 
   // Checagem de permissão de notificação inicial
   useEffect(() => {
@@ -222,6 +236,7 @@ export function AgendaSection() {
     setFormSubjectId('');
     setFormReminder('15m');
     setFormRecurrence('never');
+    setFormStatus('pending');
     setFormDescription('');
     setShowEventModal(true);
   };
@@ -239,6 +254,7 @@ export function AgendaSection() {
     setFormSubjectId(master.subjectId || '');
     setFormReminder(master.reminder);
     setFormRecurrence(master.recurrence);
+    setFormStatus(resolveEventStatus(master));
     setFormDescription(master.description || '');
     setShowEventModal(true);
   };
@@ -263,6 +279,10 @@ export function AgendaSection() {
         subjectId: formCategory === 'studies' && formSubjectId ? formSubjectId : undefined,
         reminder: formReminder,
         recurrence: formRecurrence,
+        status: formStatus,
+        completed: formStatus === 'completed',
+        completedAt: formStatus === 'completed' ? (editingEvent.completedAt || now) : undefined,
+        postponedAt: formStatus === 'postponed' ? (editingEvent.postponedAt || now) : undefined,
         description: formDescription.trim() || undefined,
         updatedAt: now,
       });
@@ -278,43 +298,99 @@ export function AgendaSection() {
         subjectId: formCategory === 'studies' && formSubjectId ? formSubjectId : undefined,
         reminder: formReminder,
         recurrence: formRecurrence,
+        status: formStatus,
+        completed: formStatus === 'completed',
+        completedAt: formStatus === 'completed' ? now : undefined,
+        postponedAt: formStatus === 'postponed' ? now : undefined,
         description: formDescription.trim() || undefined,
-        completed: false,
         createdAt: now,
         updatedAt: now,
       });
 
-      try {
-        confetti({ particleCount: 35, spread: 50, origin: { y: 0.75 } });
-      } catch {
-        // Ignorar se bloqueado
+      if (formStatus === 'completed') {
+        try {
+          confetti({ particleCount: 35, spread: 50, origin: { y: 0.75 } });
+        } catch {
+          // Ignorar se bloqueado
+        }
       }
     }
 
     setShowEventModal(false);
   };
 
-  // Alternar conclusão
+  // Alternar conclusão (Feito <-> Pendente)
   const handleToggleComplete = async (occ: AgendaOccurrence) => {
     const master = events.find((e) => e.id === occ.masterEventId);
     if (!master) return;
 
-    const newCompleted = !occ.completed;
+    const currentStatus = resolveEventStatus(master);
+    const newStatus: AgendaEventStatus = currentStatus === 'completed' ? 'pending' : 'completed';
     const now = Date.now();
 
     await db.agendaEvents.update(master.id, {
-      completed: newCompleted,
-      completedAt: newCompleted ? now : undefined,
+      status: newStatus,
+      completed: newStatus === 'completed',
+      completedAt: newStatus === 'completed' ? now : undefined,
       updatedAt: now,
     });
 
-    if (newCompleted) {
+    if (newStatus === 'completed') {
       try {
         confetti({ particleCount: 30, spread: 55, origin: { y: 0.8 } });
       } catch {
         // Ignorar se bloqueado
       }
     }
+  };
+
+  // Abrir modal de adiamento
+  const handleOpenPostponeModal = (occ: AgendaOccurrence) => {
+    setPostponingOcc(occ);
+    setPostponeTargetDate(calculatePostponedDate(occ.date, 1));
+  };
+
+  // Confirmar adiamento
+  const handleConfirmPostpone = async (mode: 'tomorrow' | '2days' | 'nextWeek' | 'custom' | 'markOnly') => {
+    if (!postponingOcc) return;
+    const master = events.find((e) => e.id === postponingOcc.masterEventId);
+    if (!master) return;
+
+    let targetDate = postponingOcc.date;
+    if (mode === 'tomorrow') {
+      targetDate = calculatePostponedDate(postponingOcc.date, 1);
+    } else if (mode === '2days') {
+      targetDate = calculatePostponedDate(postponingOcc.date, 2);
+    } else if (mode === 'nextWeek') {
+      targetDate = calculatePostponedDate(postponingOcc.date, 7);
+    } else if (mode === 'custom') {
+      targetDate = postponeTargetDate || postponingOcc.date;
+    }
+
+    const now = Date.now();
+    await db.agendaEvents.update(master.id, {
+      status: 'postponed',
+      completed: false,
+      date: targetDate,
+      originalDate: targetDate !== postponingOcc.date ? postponingOcc.date : (master.originalDate || postponingOcc.date),
+      postponedAt: now,
+      updatedAt: now,
+    });
+
+    setPostponingOcc(null);
+  };
+
+  // Reverter adiamento e voltar a ser pendente
+  const handleRevertToPending = async (occ: AgendaOccurrence) => {
+    const master = events.find((e) => e.id === occ.masterEventId);
+    if (!master) return;
+    const now = Date.now();
+    await db.agendaEvents.update(master.id, {
+      status: 'pending',
+      completed: false,
+      updatedAt: now,
+    });
+    setPostponingOcc(null);
   };
 
   // Excluir evento
@@ -531,7 +607,7 @@ export function AgendaSection() {
           )}
         </div>
 
-        {/* Linha de Busca e Filtro de Categorias */}
+        {/* Linha de Busca e Filtro de Categorias / Status */}
         <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-slate-100">
           <div className="flex-1 relative">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
@@ -545,6 +621,35 @@ export function AgendaSection() {
           </div>
 
           <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-1">
+            {/* Status Pills */}
+            <div className="flex items-center gap-1 border-r border-slate-200 pr-2 mr-1">
+              {[
+                { id: 'all' as const, label: 'Todos' },
+                { id: 'pending' as const, label: 'Pendentes' },
+                { id: 'completed' as const, label: 'Feitos' },
+                { id: 'postponed' as const, label: 'Adiados' },
+              ].map((st) => {
+                const isSelected = selectedStatusFilter === st.id;
+                return (
+                  <button
+                    key={st.id}
+                    onClick={() => setSelectedStatusFilter(st.id)}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-extrabold transition whitespace-nowrap ${
+                      isSelected
+                        ? st.id === 'completed'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : st.id === 'postponed'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'bg-slate-900 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {st.label}
+                  </button>
+                );
+              })}
+            </div>
+
             <button
               onClick={() => setSelectedCategoryFilter('all')}
               className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition whitespace-nowrap ${
@@ -717,13 +822,20 @@ export function AgendaSection() {
                                 setViewMode('day');
                               }}
                               className={`p-1.5 rounded-xl border text-xs cursor-pointer transition ${
-                                occ.completed
-                                  ? 'bg-slate-50 border-slate-200 text-slate-400 opacity-60'
+                                occ.status === 'completed'
+                                  ? 'bg-emerald-50/50 border-emerald-200 text-emerald-700 opacity-60 line-through'
+                                  : occ.status === 'postponed'
+                                  ? 'bg-amber-50/80 border-amber-300 text-amber-900 font-bold'
                                   : `${catMeta.bgClass} ${catMeta.borderClass} ${catMeta.textClass}`
                               }`}
                             >
                               <div className="flex items-center justify-between gap-1">
-                                <span className="font-bold text-[11px] truncate">{occ.title}</span>
+                                <span className="font-bold text-[11px] truncate flex items-center gap-1">
+                                  {occ.status === 'postponed' && (
+                                    <span className="text-[9px] text-amber-700">⏳</span>
+                                  )}
+                                  {occ.title}
+                                </span>
                                 {occ.startTime && (
                                   <span className="text-[9px] font-extrabold shrink-0">
                                     {occ.startTime}
@@ -796,8 +908,10 @@ export function AgendaSection() {
                     <div
                       key={occ.id}
                       className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                        occ.completed
+                        occ.status === 'completed'
                           ? 'bg-slate-50/70 border-slate-200/70 opacity-60'
+                          : occ.status === 'postponed'
+                          ? 'bg-amber-50/40 border-amber-300/80 hover:border-amber-400 shadow-2xs'
                           : 'bg-white border-slate-200/90 hover:border-slate-300 shadow-2xs'
                       }`}
                     >
@@ -805,11 +919,15 @@ export function AgendaSection() {
                         <button
                           onClick={() => handleToggleComplete(occ)}
                           className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition ${
-                            occ.completed ? 'text-emerald-500' : 'text-slate-300 hover:text-slate-400'
+                            occ.status === 'completed'
+                              ? 'text-emerald-500'
+                              : occ.status === 'postponed'
+                              ? 'text-amber-500 hover:text-emerald-500'
+                              : 'text-slate-300 hover:text-emerald-500'
                           }`}
-                          title={occ.completed ? 'Desmarcar' : 'Concluir'}
+                          title={occ.status === 'completed' ? 'Marcar como Pendente' : 'Marcar como Feito'}
                         >
-                          {occ.completed ? (
+                          {occ.status === 'completed' ? (
                             <CheckCircle2 className="w-5 h-5 fill-emerald-500 text-white" />
                           ) : (
                             <Circle className="w-5 h-5 stroke-[1.8]" />
@@ -823,6 +941,26 @@ export function AgendaSection() {
                             >
                               {catMeta.label}
                             </span>
+
+                            {/* Badges de Feito ou Adiado */}
+                            {occ.status === 'completed' && (
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                Feito
+                              </span>
+                            )}
+
+                            {occ.status === 'postponed' && (
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                                <CalendarClock className="w-3 h-3 text-amber-700" />
+                                Adiado
+                                {occ.originalDate && occ.originalDate !== occ.date && (
+                                  <span className="text-[9px] font-semibold text-amber-800">
+                                    (de {formatAgendaDateBR(occ.originalDate)})
+                                  </span>
+                                )}
+                              </span>
+                            )}
 
                             {subject && (
                               <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 flex items-center gap-1">
@@ -848,7 +986,7 @@ export function AgendaSection() {
 
                           <h4
                             className={`font-black text-sm text-slate-900 truncate ${
-                              occ.completed ? 'line-through text-slate-400' : ''
+                              occ.status === 'completed' ? 'line-through text-slate-400' : ''
                             }`}
                           >
                             {occ.title}
@@ -869,6 +1007,14 @@ export function AgendaSection() {
                         </div>
 
                         <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleOpenPostponeModal(occ)}
+                            className="p-1.5 text-slate-500 hover:text-amber-700 rounded-lg hover:bg-amber-50 transition flex items-center gap-1 text-xs font-bold"
+                            title="Adiar compromisso"
+                          >
+                            <CalendarClock className="w-4 h-4 text-amber-600" />
+                            <span className="text-[11px] text-amber-700 font-bold">Adiar</span>
+                          </button>
                           <button
                             onClick={() => handleOpenEditModal(occ)}
                             className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-slate-100 transition"
@@ -955,6 +1101,18 @@ export function AgendaSection() {
                           >
                             {catMeta.label}
                           </span>
+                          {occ.status === 'completed' && (
+                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                              Feito
+                            </span>
+                          )}
+                          {occ.status === 'postponed' && (
+                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                              <CalendarClock className="w-2.5 h-2.5 text-amber-700" />
+                              Adiado
+                            </span>
+                          )}
                           {occ.recurrence !== 'never' && (
                             <span className="text-[9px] font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md">
                               Recorrente
@@ -971,6 +1129,13 @@ export function AgendaSection() {
                     </div>
 
                     <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => handleOpenPostponeModal(occ)}
+                        className="p-1.5 text-slate-400 hover:text-amber-600 rounded-lg hover:bg-amber-50 transition"
+                        title="Adiar compromisso"
+                      >
+                        <CalendarClock className="w-4 h-4 text-amber-600" />
+                      </button>
                       <button
                         onClick={() => {
                           setSelectedDateStr(occ.date);
@@ -1028,6 +1193,36 @@ export function AgendaSection() {
                   onChange={(e) => setFormTitle(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:border-indigo-500"
                 />
+              </div>
+
+              {/* Status do Compromisso: Pendente, Feito, Adiado */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700">Status do Compromisso</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'pending' as const, label: 'Pendente', icon: Circle, color: 'border-slate-300 bg-slate-50 text-slate-700' },
+                    { id: 'completed' as const, label: 'Feito', icon: CheckCircle2, color: 'border-emerald-500 bg-emerald-50 text-emerald-800' },
+                    { id: 'postponed' as const, label: 'Adiado', icon: CalendarClock, color: 'border-amber-500 bg-amber-50 text-amber-800' },
+                  ].map((st) => {
+                    const isSelected = formStatus === st.id;
+                    const Icon = st.icon;
+                    return (
+                      <button
+                        type="button"
+                        key={st.id}
+                        onClick={() => setFormStatus(st.id)}
+                        className={`py-2 px-3 rounded-xl border text-center font-bold text-xs transition flex items-center justify-center gap-1.5 ${
+                          isSelected
+                            ? `${st.color} ring-2 ring-indigo-500/20 shadow-xs font-black`
+                            : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Icon className="w-3.5 h-3.5" />
+                        {st.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Data e Horários */}
@@ -1178,6 +1373,150 @@ export function AgendaSection() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 8. MODAL DE ADIAR COMPROMISSO */}
+      {/* ============================================================ */}
+      {postponingOcc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl border border-slate-100 space-y-4 my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <CalendarClock className="w-5 h-5 text-amber-600" />
+                <h3 className="font-extrabold text-slate-900 text-base">Adiar Compromisso</h3>
+              </div>
+              <button
+                onClick={() => setPostponingOcc(null)}
+                className="p-1 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1 bg-amber-50/60 p-3.5 rounded-2xl border border-amber-200">
+              <span className="text-[10px] font-black uppercase text-amber-700 tracking-wider">
+                Compromisso Selecionado
+              </span>
+              <h4 className="font-bold text-slate-900 text-sm">{postponingOcc.title}</h4>
+              <p className="text-xs text-slate-500">
+                Data agendada: <strong className="text-slate-800">{formatAgendaDateBR(postponingOcc.date)}</strong>
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700 block">Opções Rápidas de Adiamento</label>
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleConfirmPostpone('tomorrow')}
+                  className="w-full text-left p-3 rounded-2xl border border-slate-200 hover:border-amber-400 hover:bg-amber-50/40 transition flex items-center justify-between group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 font-black text-xs flex items-center justify-center">
+                      +1d
+                    </span>
+                    <div>
+                      <span className="font-bold text-xs text-slate-800 block">Adiar para Amanhã</span>
+                      <span className="text-[10px] text-slate-400">
+                        {formatAgendaDateBR(calculatePostponedDate(postponingOcc.date, 1))}
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-amber-600" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleConfirmPostpone('2days')}
+                  className="w-full text-left p-3 rounded-2xl border border-slate-200 hover:border-amber-400 hover:bg-amber-50/40 transition flex items-center justify-between group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 font-black text-xs flex items-center justify-center">
+                      +2d
+                    </span>
+                    <div>
+                      <span className="font-bold text-xs text-slate-800 block">Adiar para Daqui a 2 Dias</span>
+                      <span className="text-[10px] text-slate-400">
+                        {formatAgendaDateBR(calculatePostponedDate(postponingOcc.date, 2))}
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-amber-600" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleConfirmPostpone('nextWeek')}
+                  className="w-full text-left p-3 rounded-2xl border border-slate-200 hover:border-amber-400 hover:bg-amber-50/40 transition flex items-center justify-between group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 font-black text-xs flex items-center justify-center">
+                      +7d
+                    </span>
+                    <div>
+                      <span className="font-bold text-xs text-slate-800 block">Adiar para Próxima Semana</span>
+                      <span className="text-[10px] text-slate-400">
+                        {formatAgendaDateBR(calculatePostponedDate(postponingOcc.date, 7))}
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-amber-600" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleConfirmPostpone('markOnly')}
+                  className="w-full text-left p-3 rounded-2xl border border-slate-200 hover:border-amber-400 hover:bg-amber-50/40 transition flex items-center justify-between group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-8 h-8 rounded-xl bg-slate-100 text-slate-600 font-black text-xs flex items-center justify-center">
+                      🏷️
+                    </span>
+                    <div>
+                      <span className="font-bold text-xs text-slate-800 block">Apenas Marcar como Adiado</span>
+                      <span className="text-[10px] text-slate-400">Mantém na data atual com status Adiado</span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-amber-600" />
+                </button>
+              </div>
+            </div>
+
+            {/* Escolher data específica */}
+            <div className="pt-2 border-t border-slate-100 space-y-2">
+              <label className="text-xs font-bold text-slate-700 block">Ou Escolher uma Data Específica:</label>
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={postponeTargetDate}
+                  onChange={(e) => setPostponeTargetDate(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-hidden focus:border-amber-500 font-bold"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleConfirmPostpone('custom')}
+                  className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition"
+                >
+                  Mover Data
+                </button>
+              </div>
+            </div>
+
+            {/* Reverter para pendente se já estava adiado */}
+            {postponingOcc.status === 'postponed' && (
+              <div className="pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => handleRevertToPending(postponingOcc)}
+                  className="w-full py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold text-xs transition"
+                >
+                  Voltar para Pendente (Desfazer Adiamento)
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

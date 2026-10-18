@@ -101,6 +101,10 @@ export class FocusUpDatabase extends Dexie {
     this.version(7).stores({
       agendaEvents: 'id, date, category, completed, recurrence, createdAt, updatedAt',
     });
+
+    this.version(8).stores({
+      agendaEvents: 'id, date, category, status, completed, recurrence, createdAt, updatedAt',
+    });
   }
 }
 

@@ -4,7 +4,64 @@ import type {
   AgendaRecurrence,
   AgendaEvent,
   AgendaOccurrence,
+  AgendaEventStatus,
 } from '../types';
+
+export const AGENDA_STATUS_METAS: Record<
+  AgendaEventStatus,
+  {
+    label: string;
+    color: string;
+    bgClass: string;
+    textClass: string;
+    borderClass: string;
+    badgeClass: string;
+  }
+> = {
+  pending: {
+    label: 'Pendente',
+    color: '#64748b',
+    bgClass: 'bg-slate-50',
+    textClass: 'text-slate-600',
+    borderClass: 'border-slate-200',
+    badgeClass: 'bg-slate-100 text-slate-700 border-slate-200',
+  },
+  completed: {
+    label: 'Feito',
+    color: '#059669',
+    bgClass: 'bg-emerald-50/60',
+    textClass: 'text-emerald-700',
+    borderClass: 'border-emerald-200',
+    badgeClass: 'bg-emerald-100/80 text-emerald-800 border-emerald-200',
+  },
+  postponed: {
+    label: 'Adiado',
+    color: '#d97706',
+    bgClass: 'bg-amber-50/70',
+    textClass: 'text-amber-800',
+    borderClass: 'border-amber-300',
+    badgeClass: 'bg-amber-100 text-amber-900 border-amber-300',
+  },
+};
+
+export function resolveEventStatus(evt: { status?: AgendaEventStatus; completed: boolean }): AgendaEventStatus {
+  if (evt.status) return evt.status;
+  return evt.completed ? 'completed' : 'pending';
+}
+
+export function getAgendaStatusMeta(status: AgendaEventStatus) {
+  return AGENDA_STATUS_METAS[status] || AGENDA_STATUS_METAS.pending;
+}
+
+export function calculatePostponedDate(fromDateStr: string, daysToAdd: number): string {
+  const [y, m, d] = fromDateStr.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + daysToAdd);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 export const AGENDA_CATEGORIES: Record<
   AgendaCategory,
@@ -156,6 +213,7 @@ export function getEventOccurrencesForRange(
 
     if (evt.recurrence === 'never') {
       if (evt.date >= rangeStartStr && evt.date <= rangeEndStr) {
+        const status = resolveEventStatus(evt);
         occurrences.push({
           id: evt.id,
           masterEventId: evt.id,
@@ -168,8 +226,11 @@ export function getEventOccurrencesForRange(
           subjectId: evt.subjectId,
           reminder: evt.reminder,
           recurrence: evt.recurrence,
-          completed: evt.completed,
+          status,
+          completed: status === 'completed',
           completedAt: evt.completedAt,
+          postponedAt: evt.postponedAt,
+          originalDate: evt.originalDate,
           isRecurringInstance: false,
         });
       }
@@ -187,6 +248,8 @@ export function getEventOccurrencesForRange(
         const m = String(cur.getMonth() + 1).padStart(2, '0');
         const d = String(cur.getDate()).padStart(2, '0');
         const curStr = `${y}-${m}-${d}`;
+        const isMaster = curStr === evt.date;
+        const status = isMaster ? resolveEventStatus(evt) : 'pending';
 
         occurrences.push({
           id: `${evt.id}_${curStr}`,
@@ -200,9 +263,12 @@ export function getEventOccurrencesForRange(
           subjectId: evt.subjectId,
           reminder: evt.reminder,
           recurrence: evt.recurrence,
-          completed: curStr === evt.date ? evt.completed : false,
-          completedAt: curStr === evt.date ? evt.completedAt : undefined,
-          isRecurringInstance: curStr !== evt.date,
+          status,
+          completed: status === 'completed',
+          completedAt: isMaster ? evt.completedAt : undefined,
+          postponedAt: isMaster ? evt.postponedAt : undefined,
+          originalDate: isMaster ? evt.originalDate : undefined,
+          isRecurringInstance: !isMaster,
         });
         cur.setDate(cur.getDate() + 1);
       }
@@ -226,6 +292,8 @@ export function getEventOccurrencesForRange(
         const m = String(cur.getMonth() + 1).padStart(2, '0');
         const d = String(cur.getDate()).padStart(2, '0');
         const curStr = `${y}-${m}-${d}`;
+        const isMaster = curStr === evt.date;
+        const status = isMaster ? resolveEventStatus(evt) : 'pending';
 
         occurrences.push({
           id: `${evt.id}_${curStr}`,
@@ -239,9 +307,12 @@ export function getEventOccurrencesForRange(
           subjectId: evt.subjectId,
           reminder: evt.reminder,
           recurrence: evt.recurrence,
-          completed: curStr === evt.date ? evt.completed : false,
-          completedAt: curStr === evt.date ? evt.completedAt : undefined,
-          isRecurringInstance: curStr !== evt.date,
+          status,
+          completed: status === 'completed',
+          completedAt: isMaster ? evt.completedAt : undefined,
+          postponedAt: isMaster ? evt.postponedAt : undefined,
+          originalDate: isMaster ? evt.originalDate : undefined,
+          isRecurringInstance: !isMaster,
         });
         cur.setDate(cur.getDate() + 7);
       }
@@ -262,6 +333,9 @@ export function getEventOccurrencesForRange(
         const curStr = `${y}-${String(m).padStart(2, '0')}-${String(actualDay).padStart(2, '0')}`;
 
         if (curStr >= evt.date && curStr >= rangeStartStr && curStr <= rangeEndStr) {
+          const isMaster = curStr === evt.date;
+          const status = isMaster ? resolveEventStatus(evt) : 'pending';
+
           occurrences.push({
             id: `${evt.id}_${curStr}`,
             masterEventId: evt.id,
@@ -274,9 +348,12 @@ export function getEventOccurrencesForRange(
             subjectId: evt.subjectId,
             reminder: evt.reminder,
             recurrence: evt.recurrence,
-            completed: curStr === evt.date ? evt.completed : false,
-            completedAt: curStr === evt.date ? evt.completedAt : undefined,
-            isRecurringInstance: curStr !== evt.date,
+            status,
+            completed: status === 'completed',
+            completedAt: isMaster ? evt.completedAt : undefined,
+            postponedAt: isMaster ? evt.postponedAt : undefined,
+            originalDate: isMaster ? evt.originalDate : undefined,
+            isRecurringInstance: !isMaster,
           });
         }
 
@@ -301,6 +378,9 @@ export function getEventOccurrencesForRange(
         const curStr = `${y}-${String(targetMonth + 1).padStart(2, '0')}-${String(actualDay).padStart(2, '0')}`;
 
         if (curStr >= evt.date && curStr >= rangeStartStr && curStr <= rangeEndStr) {
+          const isMaster = curStr === evt.date;
+          const status = isMaster ? resolveEventStatus(evt) : 'pending';
+
           occurrences.push({
             id: `${evt.id}_${curStr}`,
             masterEventId: evt.id,
@@ -313,9 +393,12 @@ export function getEventOccurrencesForRange(
             subjectId: evt.subjectId,
             reminder: evt.reminder,
             recurrence: evt.recurrence,
-            completed: curStr === evt.date ? evt.completed : false,
-            completedAt: curStr === evt.date ? evt.completedAt : undefined,
-            isRecurringInstance: curStr !== evt.date,
+            status,
+            completed: status === 'completed',
+            completedAt: isMaster ? evt.completedAt : undefined,
+            postponedAt: isMaster ? evt.postponedAt : undefined,
+            originalDate: isMaster ? evt.originalDate : undefined,
+            isRecurringInstance: !isMaster,
           });
         }
       }

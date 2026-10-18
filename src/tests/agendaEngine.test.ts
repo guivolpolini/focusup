@@ -9,6 +9,9 @@ import {
   formatAgendaDateBR,
   getUpcomingEvents,
   getAgendaCategoryMeta,
+  resolveEventStatus,
+  calculatePostponedDate,
+  getAgendaStatusMeta,
 } from '../lib/agendaEngine';
 import type { AgendaEvent } from '../types';
 
@@ -197,6 +200,7 @@ describe('agendaEngine', () => {
           category: 'personal' as const,
           reminder: 'none' as const,
           recurrence: 'never' as const,
+          status: 'pending' as const,
           completed: false,
           isRecurringInstance: false,
         },
@@ -209,6 +213,7 @@ describe('agendaEngine', () => {
           category: 'work' as const,
           reminder: 'none' as const,
           recurrence: 'never' as const,
+          status: 'pending' as const,
           completed: false,
           isRecurringInstance: false,
         },
@@ -220,6 +225,7 @@ describe('agendaEngine', () => {
           category: 'studies' as const,
           reminder: 'none' as const,
           recurrence: 'never' as const,
+          status: 'pending' as const,
           completed: false,
           isRecurringInstance: false,
         },
@@ -229,6 +235,63 @@ describe('agendaEngine', () => {
       expect(upcoming).toHaveLength(2);
       expect(upcoming[0].title).toBe('Hoje');
       expect(upcoming[1].title).toBe('Amanhã');
+    });
+  });
+
+  describe('Status: Feito, Adiado e Pendente', () => {
+    it('resolve status explicitamente ou infere de completed', () => {
+      expect(resolveEventStatus({ status: 'completed', completed: true })).toBe('completed');
+      expect(resolveEventStatus({ status: 'postponed', completed: false })).toBe('postponed');
+      expect(resolveEventStatus({ status: 'pending', completed: false })).toBe('pending');
+      // Fallback para eventos legados sem campo status
+      expect(resolveEventStatus({ completed: true })).toBe('completed');
+      expect(resolveEventStatus({ completed: false })).toBe('pending');
+    });
+
+    it('retorna metadados visuais corretos para cada status', () => {
+      const pendingMeta = getAgendaStatusMeta('pending');
+      expect(pendingMeta.label).toBe('Pendente');
+
+      const completedMeta = getAgendaStatusMeta('completed');
+      expect(completedMeta.label).toBe('Feito');
+
+      const postponedMeta = getAgendaStatusMeta('postponed');
+      expect(postponedMeta.label).toBe('Adiado');
+    });
+
+    it('calcula data de adiamento corretamente', () => {
+      // 2026-10-18 + 1 dia -> 2026-10-19
+      expect(calculatePostponedDate('2026-10-18', 1)).toBe('2026-10-19');
+      // 2026-10-18 + 2 dias -> 2026-10-20
+      expect(calculatePostponedDate('2026-10-18', 2)).toBe('2026-10-20');
+      // 2026-10-18 + 7 dias -> 2026-10-25
+      expect(calculatePostponedDate('2026-10-18', 7)).toBe('2026-10-25');
+      // Virada de mês: 2026-10-31 + 1 dia -> 2026-11-01
+      expect(calculatePostponedDate('2026-10-31', 1)).toBe('2026-11-01');
+    });
+
+    it('projeta ocorrências com status adiado preservado', () => {
+      const events: AgendaEvent[] = [
+        {
+          id: 'evt-postponed',
+          title: 'Treino Adiado',
+          date: '2026-10-20',
+          category: 'gym',
+          reminder: 'none',
+          recurrence: 'never',
+          status: 'postponed',
+          completed: false,
+          originalDate: '2026-10-19',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      ];
+
+      const occurrences = getEventOccurrencesForRange(events, '2026-10-20', '2026-10-20');
+      expect(occurrences).toHaveLength(1);
+      expect(occurrences[0].status).toBe('postponed');
+      expect(occurrences[0].completed).toBe(false);
+      expect(occurrences[0].originalDate).toBe('2026-10-19');
     });
   });
 });
