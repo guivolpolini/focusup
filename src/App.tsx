@@ -28,6 +28,7 @@ import {
   Dumbbell,
   CheckSquare,
   Wallet,
+  CalendarDays,
 } from 'lucide-react';
 
 import { HabitsCard } from './components/HabitsCard';
@@ -35,6 +36,8 @@ import { HabitsSection } from './components/HabitsSection';
 import { FinanceCard } from './components/FinanceCard';
 import { FinanceSection } from './components/FinanceSection';
 import { StudySection } from './components/StudySection';
+import { AgendaCard } from './components/AgendaCard';
+import { AgendaSection } from './components/AgendaSection';
 import { WeeklyReportCard } from './components/WeeklyReportCard';
 import { WeeklyReportSection } from './components/WeeklyReportSection';
 import { getHabitLogForDate, getHabitStatusForDate } from './lib/habitEngine';
@@ -73,7 +76,7 @@ import type {
 } from './types';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'studies' | 'gym' | 'habits' | 'finance' | 'weekly_report' | 'progress' | 'settings'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'studies' | 'agenda' | 'gym' | 'habits' | 'finance' | 'weekly_report' | 'progress' | 'settings'>('home');
   const [now, setNow] = useState(Date.now());
   const [currentReview, setCurrentReview] = useState<WeeklyReview | null>(null);
 
@@ -438,6 +441,17 @@ export function App() {
             Estudos
           </button>
           <button
+            onClick={() => setActiveTab('agenda')}
+            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
+              activeTab === 'agenda'
+                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <CalendarDays className="w-5 h-5 text-indigo-500" />
+            Agenda
+          </button>
+          <button
             onClick={() => setActiveTab('gym')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
               activeTab === 'gym'
@@ -621,9 +635,10 @@ export function App() {
               onStartFocusToday={() => prepareTimer('pomodoro')}
             />
 
-            {/* Grid: Financeiro, Meus Hábitos & Resumo da Semana */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Grid: Financeiro, Agenda, Meus Hábitos & Resumo da Semana */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FinanceCard onOpenFinancePage={() => setActiveTab('finance')} />
+              <AgendaCard onOpenAgendaPage={() => setActiveTab('agenda')} />
               <HabitsCard
                 habits={habits}
                 habitLogs={habitLogs}
@@ -978,6 +993,11 @@ export function App() {
               setActiveTab('focus');
             }}
           />
+        )}
+
+        {/* TAB: AGENDA DE COMPROMISSOS */}
+        {activeTab === 'agenda' && (
+          <AgendaSection />
         )}
 
         {/* TAB: ACADEMIA & HIPERTROFIA */}
@@ -1352,6 +1372,7 @@ export function App() {
             { id: 'home' as const, label: 'Dashboard', icon: Layers, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
             { id: 'finance' as const, label: 'Finanças', icon: Wallet, activeColor: 'text-emerald-600 bg-emerald-50/90 border-emerald-200 shadow-xs' },
             { id: 'studies' as const, label: 'Estudos', icon: BookOpen, activeColor: 'text-sky-600 bg-sky-50/90 border-sky-200 shadow-xs' },
+            { id: 'agenda' as const, label: 'Agenda', icon: CalendarDays, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
             { id: 'gym' as const, label: 'Treino', icon: Dumbbell, activeColor: 'text-rose-600 bg-rose-50/90 border-rose-200 shadow-xs' },
             { id: 'habits' as const, label: 'Hábitos', icon: CheckSquare, activeColor: 'text-emerald-600 bg-emerald-50/90 border-emerald-200 shadow-xs' },
             { id: 'focus' as const, label: 'Foco', icon: Zap, activeColor: 'text-amber-600 bg-amber-50/90 border-amber-200 shadow-xs' },

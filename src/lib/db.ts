@@ -23,6 +23,7 @@ import type {
   FinanceCategory,
   FinanceMonthlyBudget,
   FinanceRecurringExpense,
+  AgendaEvent,
 } from '../types';
 import { DEFAULT_FINANCE_CATEGORIES } from './financeEngine';
 
@@ -50,6 +51,7 @@ export class FocusUpDatabase extends Dexie {
   financeCategories!: Table<FinanceCategory, string>;
   financeBudgets!: Table<FinanceMonthlyBudget, string>;
   financeRecurring!: Table<FinanceRecurringExpense, string>;
+  agendaEvents!: Table<AgendaEvent, string>;
 
   constructor() {
     super('FocusUpDB');
@@ -94,6 +96,10 @@ export class FocusUpDatabase extends Dexie {
     this.version(6).stores({
       financeTransactions: 'id, type, date, categoryId, paymentMethod, cardId, installmentPlanId, invoiceMonth, recurringExpenseId, occurrenceKey, createdAt, updatedAt',
       financeRecurring: 'id, name, categoryId, frequency, status, firstDueDate, createdAt, updatedAt',
+    });
+
+    this.version(7).stores({
+      agendaEvents: 'id, date, category, completed, recurrence, createdAt, updatedAt',
     });
   }
 }

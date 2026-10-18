@@ -547,4 +547,48 @@ export interface FinanceMonthlyBudget {
   updatedAt: number;
 }
 
+// ==========================================
+// MÓDULO AGENDA (COMPROMISSOS & LEMBRETES)
+// ==========================================
+
+export type AgendaCategory = 'studies' | 'work' | 'gym' | 'finance' | 'personal' | 'other';
+
+export type AgendaReminderOffset = 'none' | 'at_time' | '5m' | '15m' | '30m' | '1h' | '1d';
+
+export type AgendaRecurrence = 'never' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export interface AgendaEvent {
+  id: string;
+  title: string;
+  description?: string;
+  date: string; // YYYY-MM-DD
+  startTime?: string; // HH:MM
+  endTime?: string; // HH:MM
+  category: AgendaCategory;
+  subjectId?: string; // Vínculo opcional com matéria de Estudos
+  reminder: AgendaReminderOffset;
+  recurrence: AgendaRecurrence;
+  completed: boolean;
+  completedAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AgendaOccurrence {
+  id: string; // id único para chave de lista
+  masterEventId: string;
+  title: string;
+  description?: string;
+  date: string; // YYYY-MM-DD
+  startTime?: string;
+  endTime?: string;
+  category: AgendaCategory;
+  subjectId?: string;
+  reminder: AgendaReminderOffset;
+  recurrence: AgendaRecurrence;
+  completed: boolean;
+  completedAt?: number;
+  isRecurringInstance: boolean;
+}
+
 

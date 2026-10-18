@@ -49,6 +49,7 @@ export const BackupSchema = z.object({
     financeCategories: z.array(z.any()).optional(),
     financeBudgets: z.array(z.any()).optional(),
     financeRecurring: z.array(z.any()).optional(),
+    agendaEvents: z.array(z.any()).optional(),
   }),
 });
 
@@ -82,6 +83,7 @@ export async function exportAllData(): Promise<string> {
     financeCategories,
     financeBudgets,
     financeRecurring,
+    agendaEvents,
   ] = await Promise.all([
     db.subjects.toArray(),
     db.tasks.toArray(),
@@ -106,6 +108,7 @@ export async function exportAllData(): Promise<string> {
     db.financeCategories.toArray(),
     db.financeBudgets.toArray(),
     db.financeRecurring.toArray(),
+    db.agendaEvents.toArray(),
   ]);
 
   const payload: BackupPayload = {
@@ -136,6 +139,7 @@ export async function exportAllData(): Promise<string> {
       financeCategories,
       financeBudgets,
       financeRecurring,
+      agendaEvents,
     },
   };
 
@@ -210,6 +214,7 @@ export async function restoreByReplacement(payload: BackupPayload): Promise<void
       await db.financeCategories.clear();
       await db.financeBudgets.clear();
       await db.financeRecurring.clear();
+      await db.agendaEvents.clear();
 
       const d = payload.data;
       if (d.subjects.length) await db.subjects.bulkAdd(d.subjects as Subject[]);
@@ -235,6 +240,7 @@ export async function restoreByReplacement(payload: BackupPayload): Promise<void
       if (d.financeCategories?.length) await db.financeCategories.bulkAdd(d.financeCategories);
       if (d.financeBudgets?.length) await db.financeBudgets.bulkAdd(d.financeBudgets);
       if (d.financeRecurring?.length) await db.financeRecurring.bulkAdd(d.financeRecurring);
+      if (d.agendaEvents?.length) await db.agendaEvents.bulkAdd(d.agendaEvents);
     }
   );
 }
@@ -307,6 +313,7 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
       db.financeCategories,
       db.financeBudgets,
       db.financeRecurring,
+      db.agendaEvents,
     ],
     async () => {
       const [
@@ -333,6 +340,7 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         localFinanceCategories,
         localFinanceBudgets,
         localFinanceRecurring,
+        localAgendaEvents,
       ] = await Promise.all([
         db.subjects.toArray(),
         db.tasks.toArray(),
@@ -357,6 +365,7 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         db.financeCategories.toArray(),
         db.financeBudgets.toArray(),
         db.financeRecurring.toArray(),
+        db.agendaEvents.toArray(),
       ]);
 
       const d = payload.data;
@@ -384,6 +393,7 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
       const finCatRes = mergeEntitiesLWW(localFinanceCategories, d.financeCategories || []);
       const finBudRes = mergeEntitiesLWW(localFinanceBudgets, d.financeBudgets || []);
       const finRecRes = mergeEntitiesLWW(localFinanceRecurring, d.financeRecurring || []);
+      const agendaRes = mergeEntitiesLWW(localAgendaEvents, d.agendaEvents || []);
 
       totalAdded =
         subRes.addedCount +
@@ -408,7 +418,8 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         finCardRes.addedCount +
         finCatRes.addedCount +
         finBudRes.addedCount +
-        finRecRes.addedCount;
+        finRecRes.addedCount +
+        agendaRes.addedCount;
 
       totalUpdated =
         subRes.updatedCount +
@@ -433,7 +444,8 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         finCardRes.updatedCount +
         finCatRes.updatedCount +
         finBudRes.updatedCount +
-        finRecRes.updatedCount;
+        finRecRes.updatedCount +
+        agendaRes.updatedCount;
 
       await Promise.all([
         db.subjects.bulkPut(subRes.merged),
@@ -459,6 +471,7 @@ export async function restoreByMerge(payload: BackupPayload): Promise<{ added: n
         db.financeCategories.bulkPut(finCatRes.merged),
         db.financeBudgets.bulkPut(finBudRes.merged),
         db.financeRecurring.bulkPut(finRecRes.merged),
+        db.agendaEvents.bulkPut(agendaRes.merged),
       ]);
     }
   );
