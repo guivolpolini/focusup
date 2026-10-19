@@ -284,8 +284,8 @@ export async function seedInitialData() {
     await db.learningPaths.bulkAdd(defaultPaths);
   }
 
-  const collegeCount = await db.subjects.where('category').equals('college').count();
-  if (collegeCount === 0) {
+  const existingCollegeSub = await db.subjects.get('col-eng-soft');
+  if (!existingCollegeSub) {
     const now = Date.now();
     const collegeSub: Subject = {
       id: 'col-eng-soft',
