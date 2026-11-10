@@ -16,10 +16,8 @@ import {
   Zap,
   Shield,
   Trophy,
-  Swords,
   ChevronRight,
   Settings2,
-  Plus,
   BookOpen,
   FileText,
   Bell,
@@ -40,9 +38,9 @@ import { FinanceSection } from './components/FinanceSection';
 import { StudySection } from './components/StudySection';
 import { AgendaCard } from './components/AgendaCard';
 import { AgendaSection } from './components/AgendaSection';
-import { WeeklyReportCard } from './components/WeeklyReportCard';
 import { WeeklyReportSection } from './components/WeeklyReportSection';
 import { getHabitLogForDate, getHabitStatusForDate } from './lib/habitEngine';
+import { GymCard } from './components/GymCard';
 import { GymSection } from './components/GymSection';
 import { db, seedInitialData, ensureDefaultFinanceCategories } from './lib/db';
 import {
@@ -62,7 +60,6 @@ import {
 import { calculateGamification } from './lib/gamification';
 import { generateWeeklyReviewAnalysis } from './lib/weeklyReviewEngine';
 import {
-  normalizeSubjectName,
   deduplicateSubjectsList,
   cleanAndDeduplicateDatabaseSubjects,
 } from './lib/subjectEngine';
@@ -361,6 +358,41 @@ export function App() {
     streak
   );
 
+  // Saudação personalizada por horário e data por extenso
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 5) return 'Boa noite';
+    if (hour < 12) return 'Bom dia';
+    if (hour < 18) return 'Boa tarde';
+    return 'Boa noite';
+  }, []);
+
+  const todayFormatted = useMemo(() => {
+    const str = new Intl.DateTimeFormat('pt-BR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+    }).format(new Date());
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  }, []);
+
+  // Hábitos ativos e contagem de concluídos hoje
+  const activeHabits = useMemo(() => habits.filter((h) => !h.isArchived), [habits]);
+  const completedHabitsTodayCount = useMemo(() => {
+    return activeHabits.filter((h) => {
+      const log = getHabitLogForDate(habitLogs, h.id, todayStr);
+      return getHabitStatusForDate(h, log).completed;
+    }).length;
+  }, [activeHabits, habitLogs, todayStr]);
+
+  // Treino de hoje
+  const isGymCompletedToday = useMemo(() => {
+    return gymWorkouts.some((w) => {
+      const dStr = formatDateToLocalYYYYMMDD(new Date(w.startedAt));
+      return dStr === todayStr;
+    });
+  }, [gymWorkouts, todayStr]);
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row pb-28 md:pb-0 selection:bg-indigo-100 selection:text-indigo-900">
       {/* Sidebar Desktop — Visual Claro & Gamificado */}
@@ -557,38 +589,103 @@ export function App() {
             </button>
           </div>
         )}
-        {/* TAB: INÍCIO (QUARTEL GENERAL CLARO) */}
+        {/* TAB: INÍCIO (DASHBOARD PREMIUM & MINIMALISTA) */}
         {activeTab === 'home' && (
           <div className="space-y-6">
-            <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-400 to-indigo-600 flex items-center justify-center text-3xl shadow-md shadow-indigo-500/15">
-                  {gameStats.rankBadge}
+            {/* Header com Saudação Personalizada & Ação Primária */}
+            <header className="bg-white p-6 sm:p-7 rounded-3xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-5">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-indigo-600 bg-indigo-50 border border-indigo-200/60 px-3 py-1 rounded-full uppercase tracking-wider">
+                    {todayFormatted}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-400">
+                    • {gameStats.title} (Nvl. {gameStats.level})
+                  </span>
                 </div>
-                <div>
-                  <h2 className="text-xl font-black text-slate-900">
-                    Nível {gameStats.level} — {gameStats.title}
-                  </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    +{gameStats.xp} XP conquistados com foco e disciplina comprovada.
-                  </p>
-                </div>
+                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mt-1.5">
+                  {greeting}, Guilherme 👋
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                  {dailyProgressPercent >= 100
+                    ? 'Excelente! Sua meta diária de estudos já foi atingida hoje.'
+                    : `Você estudou ${studiedMinutesToday}m hoje. Falta pouco para atingir sua meta de ${dailyGoal}m.`}
+                </p>
               </div>
-              <button
-                onClick={() => prepareTimer('pomodoro')}
-                className="inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-3 rounded-2xl shadow-sm transition active:scale-95 text-sm"
-              >
-                <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
-                Batalha de Foco (25m)
-              </button>
+
+              {/* Botão de Foco Primário em 1 Toque */}
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  onClick={() => prepareTimer('pomodoro', 25)}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold px-6 py-3.5 rounded-2xl shadow-sm transition active:scale-95 text-sm cursor-pointer"
+                >
+                  <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
+                  Iniciar Foco (25m)
+                </button>
+              </div>
             </header>
 
-            {/* Grid de Estatísticas Gamificadas */}
+            {/* Barra de Ações Rápidas (1 Toque) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <button
+                onClick={() => prepareTimer('pomodoro', 25)}
+                className="p-3.5 bg-white rounded-2xl border border-slate-200/80 shadow-xs hover:border-indigo-300 transition flex items-center gap-3 text-left active:scale-[0.98] cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                  <Zap className="w-4 h-4 fill-current" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-800">Foco 25m</div>
+                  <div className="text-[10px] text-slate-400">Pomodoro direto</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('finance')}
+                className="p-3.5 bg-white rounded-2xl border border-slate-200/80 shadow-xs hover:border-emerald-300 transition flex items-center gap-3 text-left active:scale-[0.98] cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                  <Wallet className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-800">Finanças</div>
+                  <div className="text-[10px] text-slate-400">Ver carteira</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('agenda')}
+                className="p-3.5 bg-white rounded-2xl border border-slate-200/80 shadow-xs hover:border-indigo-300 transition flex items-center gap-3 text-left active:scale-[0.98] cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                  <CalendarDays className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-800">Agenda</div>
+                  <div className="text-[10px] text-slate-400">Compromissos</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('gym')}
+                className="p-3.5 bg-white rounded-2xl border border-slate-200/80 shadow-xs hover:border-rose-300 transition flex items-center gap-3 text-left active:scale-[0.98] cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                  <Dumbbell className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-800">Academia</div>
+                  <div className="text-[10px] text-slate-400">{isGymCompletedToday ? 'Treino feito ✓' : 'Marcar treino'}</div>
+                </div>
+              </button>
+            </div>
+
+            {/* Grid de Estatísticas e Progresso Diário */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Meta Diária</span>
+              <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Estudo Hoje</span>
                 <div className="mt-2 flex items-baseline gap-1.5">
-                  <span className="text-3xl font-black text-slate-900">{studiedMinutesToday}m</span>
+                  <span className="text-2xl sm:text-3xl font-black text-slate-900">{studiedMinutesToday}m</span>
                   <span className="text-xs text-slate-400 font-bold">/ {dailyGoal}m</span>
                 </div>
                 <div className="w-full bg-slate-100 h-2 rounded-full mt-3 overflow-hidden">
@@ -599,38 +696,42 @@ export function App() {
                 </div>
               </div>
 
-              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Streak Ativa</span>
+              <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sequência</span>
                 <div className="mt-2 flex items-center gap-2">
-                  <Flame className="w-7 h-7 text-amber-500" />
-                  <span className="text-3xl font-black text-slate-900">{streak} dias</span>
+                  <Flame className="w-6 h-6 text-amber-500" />
+                  <span className="text-2xl sm:text-3xl font-black text-slate-900">{streak} dias</span>
                 </div>
-                <p className="text-[10px] text-amber-600 mt-2 font-bold">Bônus de XP diário ativo</p>
+                <p className="text-[10px] text-amber-600 mt-2 font-bold">Consistência ativa</p>
               </div>
 
-              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tarefas Pendentes</span>
+              <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Hábitos do Dia</span>
                 <div className="mt-2 flex items-baseline gap-1.5">
-                  <span className="text-3xl font-black text-slate-900">
-                    {tasks.filter((t) => t.status !== 'completed').length}
+                  <span className="text-2xl sm:text-3xl font-black text-slate-900">
+                    {completedHabitsTodayCount}
                   </span>
-                  <span className="text-xs text-slate-400 font-bold">em aberto</span>
+                  <span className="text-xs text-slate-400 font-bold">/ {activeHabits.length} feitos</span>
                 </div>
-                <button
-                  onClick={() => setActiveTab('focus')}
-                  className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 mt-2 inline-flex items-center gap-1"
-                >
-                  Ver no QG de Foco <ChevronRight className="w-3 h-3" />
-                </button>
+                <div className="w-full bg-slate-100 h-2 rounded-full mt-3 overflow-hidden">
+                  <div
+                    className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${activeHabits.length > 0 ? (completedHabitsTodayCount / activeHabits.length) * 100 : 0}%` }}
+                  />
+                </div>
               </div>
 
-              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sessões Vitoriosas</span>
-                <div className="mt-2 flex items-baseline gap-1.5">
-                  <span className="text-3xl font-black text-slate-900">{todaySessions.length}</span>
-                  <span className="text-xs text-slate-400 font-bold">hoje</span>
+              <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Treino do Dia</span>
+                <div className="mt-2 flex items-center gap-2">
+                  <Dumbbell className={`w-6 h-6 ${isGymCompletedToday ? 'text-emerald-500' : 'text-slate-300'}`} />
+                  <span className="text-lg sm:text-xl font-black text-slate-900">
+                    {isGymCompletedToday ? 'Concluído' : 'Pendente'}
+                  </span>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-2 font-medium">{sessions.length} vitórias totais</p>
+                <p className="text-[10px] text-slate-400 mt-2 font-medium">
+                  {isGymCompletedToday ? 'Presença confirmada' : 'Ainda não registrado'}
+                </p>
               </div>
             </div>
 
@@ -658,15 +759,7 @@ export function App() {
               </div>
             )}
 
-            {/* Calendário de Consistência no Dashboard */}
-            <ConsistencyCalendar
-              sessions={sessions}
-              tasks={tasks}
-              dailyGoalMinutes={dailyGoal}
-              onStartFocusToday={() => prepareTimer('pomodoro')}
-            />
-
-            {/* Grid: Financeiro, Agenda, Meus Hábitos & Resumo da Semana */}
+            {/* Grid dos 4 Cartões Centrais: Finanças, Agenda, Hábitos e Academia */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FinanceCard onOpenFinancePage={() => setActiveTab('finance')} />
               <AgendaCard onOpenAgendaPage={() => setActiveTab('agenda')} />
@@ -675,11 +768,11 @@ export function App() {
                 habitLogs={habitLogs}
                 onOpenHabitsPage={() => setActiveTab('habits')}
                 onToggleHabit={async (habit) => {
-                  const todayStr = formatDateToLocalYYYYMMDD(new Date());
-                  const log = getHabitLogForDate(habitLogs, habit.id, todayStr);
+                  const sDate = formatDateToLocalYYYYMMDD(new Date());
+                  const log = getHabitLogForDate(habitLogs, habit.id, sDate);
                   const status = getHabitStatusForDate(habit, log);
                   const nowTime = Date.now();
-                  const logId = `${habit.id}_${todayStr}`;
+                  const logId = `${habit.id}_${sDate}`;
 
                   if (status.completed) {
                     if (log) {
@@ -694,7 +787,7 @@ export function App() {
                     await db.habitLogs.put({
                       id: logId,
                       habitId: habit.id,
-                      date: todayStr,
+                      date: sDate,
                       completed: true,
                       currentValue: targetVal,
                       targetValue: targetVal,
@@ -707,156 +800,49 @@ export function App() {
                 }}
                 onOpenNewHabitModal={() => setActiveTab('habits')}
               />
-              <WeeklyReportCard
-                sessions={sessions}
-                tasks={tasks}
-                subjects={subjects}
-                gymWorkouts={gymWorkouts}
-                habits={habits}
-                habitLogs={habitLogs}
-                studyPreferences={preferences}
-                gymPreferences={gymPreferences}
-                onOpenReportPage={() => setActiveTab('weekly_report')}
-              />
+              <GymCard onOpenGymPage={() => setActiveTab('gym')} />
             </div>
 
-            {/* Árvore de Matérias */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
-                  <Swords className="w-5 h-5 text-amber-500" /> Árvore de Matérias
-                </h3>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400 font-medium">
-                    {uniqueSubjects.length} matérias ativas
-                  </span>
-                  {subjects.length > uniqueSubjects.length && (
+            {/* Acesso Rápido às Matérias Ativas */}
+            {uniqueSubjects.length > 0 && (
+              <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-indigo-600" />
+                    <h3 className="font-extrabold text-slate-900 text-sm">Foco Rápido por Matéria</h3>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('studies')}
+                    className="text-xs font-bold text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
+                  >
+                    Gerenciar Matérias →
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {uniqueSubjects.slice(0, 6).map((sub) => (
                     <button
-                      type="button"
-                      onClick={async () => {
-                        const res = await cleanAndDeduplicateDatabaseSubjects();
-                        if (res.mergedCount > 0) {
-                          triggerVictoryEffect();
-                          alert(`${res.mergedCount} matéria(s) duplicada(s) foram unificadas no banco!`);
-                        }
-                      }}
-                      className="text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200 transition"
-                      title="Unificar matérias repetidas"
+                      key={sub.id}
+                      onClick={() => prepareTimer('pomodoro', 25, sub.id)}
+                      className="p-3.5 rounded-2xl border border-slate-100 bg-slate-50/70 hover:bg-indigo-50/60 hover:border-indigo-200 transition flex items-center justify-between group cursor-pointer text-left active:scale-[0.98]"
                     >
-                      Unificar {subjects.length - uniqueSubjects.length} Duplicadas
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className="w-3.5 h-3.5 rounded-md shrink-0 shadow-xs"
+                          style={{ backgroundColor: sub.color }}
+                        />
+                        <span className="font-bold text-slate-800 text-xs truncate group-hover:text-indigo-900">
+                          {sub.name}
+                        </span>
+                      </div>
+                      <div className="p-1.5 rounded-lg bg-white border border-slate-200 group-hover:border-indigo-500 text-indigo-600 transition shrink-0 ml-2 shadow-2xs">
+                        <Play className="w-3 h-3 fill-current" />
+                      </div>
                     </button>
-                  )}
+                  ))}
                 </div>
               </div>
-
-              {/* Formulário Rápido de Nova Matéria */}
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const form = e.currentTarget;
-                  const name = (form.elements.namedItem('subName') as HTMLInputElement).value;
-                  const color = (form.elements.namedItem('subColor') as HTMLInputElement).value || '#6366f1';
-                  const targetMinutes = Number((form.elements.namedItem('subTarget') as HTMLInputElement).value) || 120;
-
-                  if (!name) return;
-
-                  const norm = normalizeSubjectName(name);
-                  const alreadyExists = subjects.some((s) => normalizeSubjectName(s.name) === norm);
-                  if (alreadyExists) {
-                    alert(`A matéria "${name}" já está cadastrada!`);
-                    return;
-                  }
-
-                  await db.subjects.add({
-                    id: `sub-${Date.now()}`,
-                    name,
-                    color,
-                    priority: 'medium',
-                    targetMinutesPerWeek: targetMinutes,
-                    archived: false,
-                    createdAt: Date.now(),
-                    updatedAt: Date.now(),
-                  });
-
-                  form.reset();
-                  triggerVictoryEffect();
-                  alert('Nova matéria adicionada à sua árvore de conhecimentos!');
-                }}
-                className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100"
-              >
-                <input
-                  name="subColor"
-                  type="color"
-                  defaultValue="#6366f1"
-                  className="w-8 h-8 rounded-xl cursor-pointer border-0 bg-transparent p-0"
-                  title="Cor da matéria"
-                />
-                <input
-                  name="subName"
-                  placeholder="Nome da matéria (ex: Docker, Rust, Algoritmos)..."
-                  required
-                  className="flex-1 text-xs p-2 bg-transparent focus:outline-hidden"
-                />
-                <input
-                  name="subTarget"
-                  type="number"
-                  defaultValue={120}
-                  className="w-16 text-xs p-2 bg-white rounded-lg border border-slate-200 text-center focus:outline-hidden"
-                  title="Meta de minutos por semana"
-                />
-                <span className="text-[10px] text-slate-400 font-bold mr-1">m/sem</span>
-                <button
-                  type="submit"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-2 rounded-xl transition active:scale-95 shrink-0"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </form>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {uniqueSubjects.map((sub) => (
-                  <div
-                    key={sub.id}
-                    className="p-4 rounded-2xl border border-slate-100 bg-slate-50/70 hover:bg-slate-50 transition flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="w-4 h-4 rounded-lg shrink-0 shadow-xs"
-                        style={{ backgroundColor: sub.color }}
-                      />
-                      <div>
-                        <div className="font-bold text-slate-900 text-sm">{sub.name}</div>
-                        <div className="text-[11px] text-slate-500 font-medium">Meta: {sub.targetMinutesPerWeek}m/sem</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => prepareTimer('pomodoro', 25, sub.id)}
-                        className="p-2.5 rounded-xl bg-white border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50 text-indigo-600 transition active:scale-95 shadow-xs"
-                        title="Preparar foco nesta matéria"
-                      >
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (confirm(`Deseja remover a matéria "${sub.name}"?`)) {
-                            const norm = normalizeSubjectName(sub.name);
-                            const toDelete = subjects.filter((s) => normalizeSubjectName(s.name) === norm);
-                            for (const d of toDelete) {
-                              await db.subjects.delete(d.id);
-                            }
-                          }
-                        }}
-                        className="text-slate-300 hover:text-rose-500 p-1 transition"
-                        title="Remover matéria"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            )}
           </div>
         )}
 
