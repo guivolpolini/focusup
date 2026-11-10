@@ -1,106 +1,72 @@
-# ⚡ FocusUp
+# FocusUp
 
-Aplicativo progressivo (PWA) para gestão pessoal de foco, treinos, hábitos e finanças. Funciona direto no navegador, roda 100% offline e armazena os dados localmente no dispositivo via IndexedDB, sem dependência de contas ou servidores externos.
+Web app (PWA) para acompanhamento diário de foco, treinos de musculação, hábitos e finanças pessoais. Funciona offline e armazena todos os registros localmente no navegador via IndexedDB, sem exigir login e sem depender de backend externo.
 
-[![React](https://img.shields.io/badge/React-19-61dafb.svg?style=flat-square&logo=react&logoColor=black)](https://react.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4-38bdf8.svg?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
-[![PWA](https://img.shields.io/badge/PWA-Instalável%20%26%20Offline-4f46e5.svg?style=flat-square)](https://web.dev/progressive-web-apps/)
-[![Testes Automatizados](https://img.shields.io/badge/Testes-97%20passando-10b981.svg?style=flat-square)](https://vitest.dev)
-[![Privacidade](https://img.shields.io/badge/Armazenamento-Local%20(IndexedDB)-f59e0b.svg?style=flat-square)]()
+Disponível em produção: [focusup-phi.vercel.app](https://focusup-phi.vercel.app/)
 
----
+## Visão geral
 
-## Funcionalidades
+O FocusUp organiza as rotinas do dia em quatro áreas principais:
 
-### 1. Dashboard Integrado
-Visão unificada das principais áreas do dia: sessões de foco acumuladas, status dos treinos, conclusão de hábitos da rotina, resumo financeiro rápido e nível de disciplina gamificado.
+- **Hoje**: painel central com botão de foco rápido (25 min), check-in de treino do dia, checklist de hábitos, resumo da agenda e visão compacta das finanças do mês.
+- **Finanças**: controle de saldo atual e projetado, cartões de crédito com fechamento e vencimento, despesas fixas recorrentes, gráficos por categoria, importador de extrato bancário em CSV e registro de gastos por comando de voz via Web Speech API.
+- **Progresso**: mapa de consistência anual com visão de blocos estilo GitHub, estatísticas de tempo estudado e balanço semanal de atividades.
+- **Mais**: acesso direto às telas detalhadas de Estudos (timer com timestamps UTC imune a abas fechadas), Fichas de Academia com histórico de carga por série, Agenda de compromissos e módulo de Backup.
 
-### 2. Timer de Foco (Pomodoro & Deep Work)
-- Modos pré-configurados: Pomodoro (25 min), Deep Work (50 min) e Modo 5 Minutos.
-- Cronômetro calculado por timestamps reais em UTC, mantendo a contagem exata mesmo com a tela do celular bloqueada ou ao trocar de aba.
-- Alertas sonoros e vibração ao término de cada bloco e intervalo.
+## Instalação no celular (PWA)
 
-### 3. Painel Financeiro Completo
-- **Indicadores em tempo real:** Saldo atual em conta, saldo projetado do mês, total de receitas recebidas, despesas realizadas, faturas em aberto e saldo de limite orçamentário.
-- **Orçamento Mensal:** Barra de progresso do teto de gastos definido pelo usuário com alertas de aproximação do limite.
-- **Gastos Fixos e Recorrências:** Cadastro de despesas fixas (mensais, semanais, trimestrais ou anuais), com suporte a gastos com data definida ou apenas recorrentes no mês. Permite dar baixa, pausar ou excluir sem gerar lançamentos duplicados.
-- **Cartões de Crédito:** Controle de dia de fechamento, vencimento de fatura, limite total e limite disponível.
-- **Registro por Comando de Voz:** Captura natural de voz via Web Speech API ("Gastei 45 reais no mercado no débito") com conversão automática de valor, forma de pagamento e categoria, incluindo fallback digitável e botão flutuante (FAB).
-- **Importador de Extrato CSV:** Upload de arquivos bancários com detecção automática de estabelecimentos, valores e seleção de categorias por linha.
-- **Gráficos Analíticos:** Distribuição de despesas por categoria, evolução financeira dos últimos meses e proporção entre despesas fixas e variáveis.
+O aplicativo pode ser instalado direto pelo navegador:
 
-### 4. Treino & Academia
-- Criação e edição de fichas personalizadas (Push, Pull, Legs, ABC, Fullbody).
-- Consulta instantânea da carga e repetições da sessão anterior para guiar sobrecarga progressiva.
-- Cronômetro de descanso entre séries com bipes de aviso sonoro e feedback tátil.
+- **iOS (Safari)**: toque no botão de compartilhar e selecione "Adicionar à Tela de Início".
+- **Android (Chrome)**: toque no menu de três pontos e selecione "Instalar aplicativo" ou "Adicionar à tela inicial".
 
-### 5. Rastreador de Hábitos
-- Configuração de hábitos com metas diárias, dias fixos da semana ou frequência semanal flexível.
-- Histórico visual de sequências (streaks) e taxa de consistência real sem penalizações em dias de descanso planejados.
+Depois de instalado, o app roda em tela cheia e funciona normalmente sem conexão com a internet.
 
-### 6. Relatório Semanal
-- Consolidação do tempo investido em foco, frequência de treinos concluídos e aproveitamento de hábitos.
-- Visão comparativa por dia da semana para identificar padrões de produtividade.
+## Tecnologias
 
-### 7. Gamificação & Progresso
-- Pontuação de XP e níveis acumulados a partir de ciclos de foco finalizados, treinos executados e hábitos compridos.
+- **Frontend**: React 19, TypeScript, Tailwind CSS v4, Lucide React
+- **Armazenamento**: IndexedDB gerenciado via Dexie.js
+- **PWA e Service Worker**: Vite PWA com Workbox
+- **Validação de dados**: Zod (utilizado nos modelos e na validação do backup)
+- **APIs nativas do navegador**: Web Audio API (alertas sonoros do timer), Vibration API (feedback tátil), Web Speech API (reconhecimento de voz para gastos)
+- **Testes**: Vitest (121 testes unitários e de integração cobrindo regras financeiras, agenda, hábitos e lógica de treinos)
 
-### 8. Backup e Privacidade
-- Todos os dados ficam salvos no IndexedDB do navegador através do Dexie.js.
-- Exportação e restauração completa de backup em formato JSON com validação via Zod.
+## Como rodar localmente
 
----
-
-## Como instalar no celular (PWA)
-
-O FocusUp pode ser instalado na tela de início sem passar por lojas de aplicativos:
-
-- **No iPhone (Safari):** Toque no botão de compartilhar (ícone com seta para cima) e escolha **"Adicionar à Tela de Início"**.
-- **No Android (Chrome):** Abra o menu do navegador (três pontos) e selecione **"Instalar aplicativo"** ou **"Adicionar à tela inicial"**.
-
-O app abre em modo tela cheia e continua acessível mesmo sem conexão à internet.
-
----
-
-## Stack Tecnológica
-
-| Camada | Tecnologia |
-|---|---|
-| Interface | React 19, TypeScript, Lucide Icons |
-| Estilização | Tailwind CSS v4 |
-| Banco Local | Dexie.js (IndexedDB) |
-| Validação | Zod |
-| PWA / Cache | Vite PWA, Service Worker |
-| Testes | Vitest (97 testes unitários e de integração) |
-| Áudio / Tátil | Web Audio API, Vibration API, Web Speech API |
-
----
-
-## Desenvolvimento Local
+Pré-requisito: Node.js 18 ou superior.
 
 ```bash
-# 1. Clonar repositório
+# Clonar o repositório
 git clone https://github.com/guivolpolini/focusup.git
 
-# 2. Entrar na pasta
+# Entrar na pasta
 cd focusup
 
-# 3. Instalar dependências
+# Instalar dependências
 npm install
 
-# 4. Iniciar servidor de desenvolvimento
+# Iniciar o servidor local de desenvolvimento
 npm run dev
+```
 
-# 5. Executar suíte de testes automatizados
+O aplicativo roda localmente no endereço `http://localhost:5173`.
+
+### Testes e build
+
+```bash
+# Executar a suíte de testes automatizados
 npx vitest run
 
-# 6. Gerar build de produção
+# Gerar o build de produção
 npm run build
 ```
 
----
+## Dados e privacidade
+
+Nenhum dado financeiro ou de rotina sai do aparelho. Todas as informações ficam salvas no IndexedDB local do próprio navegador.
+
+Na tela de Configurações é possível exportar um arquivo JSON com o backup completo de todas as tabelas para guardar ou restaurar em outro dispositivo.
 
 ## Licença
 
-Distribuído sob a licença **MIT**.
+MIT
