@@ -29,6 +29,8 @@ import {
   CheckSquare,
   Wallet,
   CalendarDays,
+  ArrowLeft,
+  Grid,
 } from 'lucide-react';
 
 import { HabitsCard } from './components/HabitsCard';
@@ -76,9 +78,14 @@ import type {
 } from './types';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'studies' | 'agenda' | 'gym' | 'habits' | 'finance' | 'weekly_report' | 'progress' | 'settings'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'studies' | 'agenda' | 'gym' | 'habits' | 'finance' | 'weekly_report' | 'progress' | 'settings' | 'more'>('home');
   const [now, setNow] = useState(Date.now());
   const [currentReview, setCurrentReview] = useState<WeeklyReview | null>(null);
+
+  // Determina se a aba ativa é um submódulo da central de ferramentas
+  const isMoreSubTab = useMemo(() => {
+    return ['studies', 'agenda', 'gym', 'habits', 'focus', 'weekly_report', 'settings'].includes(activeTab);
+  }, [activeTab]);
 
   // Ref e auto-scroll para a barra de navegação móvel espaçosa
   const mobileNavRef = useRef<HTMLDivElement>(null);
@@ -407,6 +414,9 @@ export function App() {
         </div>
 
         <nav className="flex-1 space-y-1">
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 py-1">
+            Principal
+          </div>
           <button
             onClick={() => setActiveTab('home')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
@@ -416,7 +426,7 @@ export function App() {
             }`}
           >
             <Layers className="w-5 h-5" />
-            Dashboard
+            Hoje
           </button>
           <button
             onClick={() => setActiveTab('finance')}
@@ -427,76 +437,7 @@ export function App() {
             }`}
           >
             <Wallet className="w-5 h-5 text-emerald-500" />
-            Financeiro
-          </button>
-          <button
-            onClick={() => setActiveTab('studies')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
-              activeTab === 'studies'
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <BookOpen className="w-5 h-5 text-sky-500" />
-            Estudos
-          </button>
-          <button
-            onClick={() => setActiveTab('agenda')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
-              activeTab === 'agenda'
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <CalendarDays className="w-5 h-5 text-indigo-500" />
-            Agenda
-          </button>
-          <button
-            onClick={() => setActiveTab('gym')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
-              activeTab === 'gym'
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <Dumbbell className="w-5 h-5 text-amber-500" />
-            Academia
-          </button>
-          <button
-            onClick={() => setActiveTab('habits')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
-              activeTab === 'habits'
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <CheckSquare className="w-5 h-5 text-emerald-500" />
-            Hábitos
-          </button>
-          <button
-            onClick={() => setActiveTab('focus')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
-              activeTab === 'focus'
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <Zap className="w-5 h-5 text-amber-500" />
-            Foco
-            {timerState.status === 'running' && (
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping ml-auto" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('weekly_report')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
-              activeTab === 'weekly_report'
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <FileText className="w-5 h-5 text-indigo-500" />
-            Relatório Semanal
+            Finanças
           </button>
           <button
             onClick={() => setActiveTab('progress')}
@@ -507,15 +448,87 @@ export function App() {
             }`}
           >
             <Trophy className="w-5 h-5 text-amber-500" />
-            Conquistas & Métricas
+            Progresso
+          </button>
+          <button
+            onClick={() => setActiveTab('more')}
+            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition ${
+              activeTab === 'more' || isMoreSubTab
+                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <Grid className="w-5 h-5 text-indigo-400" />
+            Mais Módulos
+          </button>
+
+          <div className="pt-3 pb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3">
+            Ferramentas
+          </div>
+          <button
+            onClick={() => setActiveTab('studies')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition ${
+              activeTab === 'studies' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+            }`}
+          >
+            <BookOpen className="w-4 h-4 text-sky-500" />
+            Estudos & Matérias
+          </button>
+          <button
+            onClick={() => setActiveTab('agenda')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition ${
+              activeTab === 'agenda' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+            }`}
+          >
+            <CalendarDays className="w-4 h-4 text-indigo-500" />
+            Agenda
+          </button>
+          <button
+            onClick={() => setActiveTab('gym')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition ${
+              activeTab === 'gym' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+            }`}
+          >
+            <Dumbbell className="w-4 h-4 text-amber-500" />
+            Academia
+          </button>
+          <button
+            onClick={() => setActiveTab('habits')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition ${
+              activeTab === 'habits' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+            }`}
+          >
+            <CheckSquare className="w-4 h-4 text-emerald-500" />
+            Hábitos
+          </button>
+          <button
+            onClick={() => setActiveTab('focus')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition ${
+              activeTab === 'focus' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+            }`}
+          >
+            <Zap className="w-4 h-4 text-amber-500" />
+            Foco (Pomodoro)
+            {timerState.status === 'running' && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping ml-auto" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('weekly_report')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition ${
+              activeTab === 'weekly_report' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+            }`}
+          >
+            <FileText className="w-4 h-4 text-indigo-500" />
+            Relatório Semanal
           </button>
         </nav>
 
-        <div className="pt-4 border-t border-slate-100">
+        <div className="pt-3 border-t border-slate-100">
           <button
             onClick={() => setActiveTab('settings')}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition ${
-              activeTab === 'settings' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50'
+              activeTab === 'settings' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-500 hover:bg-slate-50'
             }`}
           >
             <Shield className="w-4 h-4 text-slate-400" />
@@ -524,8 +537,26 @@ export function App() {
         </div>
       </aside>
 
-      {/* Conteúdo Principal — Fundo Claro */}
-      <main className="flex-1 max-w-5xl mx-auto w-full p-4 md:p-8">
+      {/* Conteúdo Principal — Fundo Claro com espaçamento para barra mobile */}
+      <main className="flex-1 max-w-5xl mx-auto w-full p-4 md:p-8 pb-24 md:pb-8">
+        {/* Barra Superior de Retorno ao Navegar em um Submódulo */}
+        {isMoreSubTab && (
+          <div className="mb-5 flex items-center justify-between bg-white px-4 py-2.5 rounded-2xl border border-slate-200/80 shadow-xs">
+            <button
+              onClick={() => setActiveTab('more')}
+              className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 hover:text-indigo-600 transition active:scale-95 cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Voltar para Mais Módulos
+            </button>
+            <button
+              onClick={() => setActiveTab('home')}
+              className="text-xs font-bold text-slate-400 hover:text-indigo-600 transition cursor-pointer"
+            >
+              Ir para Hoje
+            </button>
+          </div>
+        )}
         {/* TAB: INÍCIO (QUARTEL GENERAL CLARO) */}
         {activeTab === 'home' && (
           <div className="space-y-6">
@@ -1068,6 +1099,14 @@ export function App() {
               </div>
             </div>
 
+            {/* Calendário de Consistência Anual */}
+            <ConsistencyCalendar
+              sessions={sessions}
+              tasks={tasks}
+              dailyGoalMinutes={dailyGoal}
+              onStartFocusToday={() => prepareTimer('pomodoro')}
+            />
+
             {/* Painel de Análise e Revisão Semanal Automática */}
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1360,41 +1399,219 @@ export function App() {
             </div>
           </div>
         )}
+        {/* TAB: MAIS MÓDULOS & FERRAMENTAS */}
+        {activeTab === 'more' && (
+          <div className="space-y-6">
+            <header className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                  <Grid className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-900">Mais Módulos & Ferramentas</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Acesse seus módulos de estudo, agenda, treinos, hábitos e configurações do sistema.
+                  </p>
+                </div>
+              </div>
+            </header>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Estudos & Faculdade */}
+              <button
+                onClick={() => setActiveTab('studies')}
+                className="p-5 bg-white rounded-3xl border border-slate-200/80 shadow-xs hover:border-indigo-300 hover:shadow-md transition text-left group cursor-pointer flex flex-col justify-between"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+                    <BookOpen className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900 group-hover:text-indigo-600 transition">
+                      Estudos & Faculdade
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Matérias, provas, simulador de notas e upload de PDFs
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-400 group-hover:text-indigo-600">
+                  <span>{uniqueSubjects.length} matérias ativas</span>
+                  <ChevronRight className="w-4 h-4" />
+                </div>
+              </button>
+
+              {/* Agenda & Compromissos */}
+              <button
+                onClick={() => setActiveTab('agenda')}
+                className="p-5 bg-white rounded-3xl border border-slate-200/80 shadow-xs hover:border-indigo-300 hover:shadow-md transition text-left group cursor-pointer flex flex-col justify-between"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+                    <CalendarDays className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900 group-hover:text-indigo-600 transition">
+                      Agenda & Compromissos
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Visualização semanal, eventos e horários
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-400 group-hover:text-indigo-600">
+                  <span>Ver calendário</span>
+                  <ChevronRight className="w-4 h-4" />
+                </div>
+              </button>
+
+              {/* Academia & Frequência */}
+              <button
+                onClick={() => setActiveTab('gym')}
+                className="p-5 bg-white rounded-3xl border border-slate-200/80 shadow-xs hover:border-indigo-300 hover:shadow-md transition text-left group cursor-pointer flex flex-col justify-between"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+                    <Dumbbell className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900 group-hover:text-indigo-600 transition">
+                      Academia & Treinos
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Registro de presença diária e histórico de treinos
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-400 group-hover:text-indigo-600">
+                  <span>{gymWorkouts.length} treinos registrados</span>
+                  <ChevronRight className="w-4 h-4" />
+                </div>
+              </button>
+
+              {/* Rastreador de Hábitos */}
+              <button
+                onClick={() => setActiveTab('habits')}
+                className="p-5 bg-white rounded-3xl border border-slate-200/80 shadow-xs hover:border-indigo-300 hover:shadow-md transition text-left group cursor-pointer flex flex-col justify-between"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+                    <CheckSquare className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900 group-hover:text-indigo-600 transition">
+                      Rastreador de Hábitos
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Criar novos hábitos, metas numéricas e rotinas
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-400 group-hover:text-indigo-600">
+                  <span>{habits.filter(h => !h.isArchived).length} hábitos ativos</span>
+                  <ChevronRight className="w-4 h-4" />
+                </div>
+              </button>
+
+              {/* Câmara de Foco Completa */}
+              <button
+                onClick={() => setActiveTab('focus')}
+                className="p-5 bg-white rounded-3xl border border-slate-200/80 shadow-xs hover:border-indigo-300 hover:shadow-md transition text-left group cursor-pointer flex flex-col justify-between"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+                    <Zap className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900 group-hover:text-indigo-600 transition">
+                      Câmara de Foco Completa
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Pomodoro, Deep Work, 5 minutos e modo livre
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-400 group-hover:text-indigo-600">
+                  <span>{timerState.status === 'running' ? '⚡ Cronômetro ativo' : 'Configurar sessão'}</span>
+                  <ChevronRight className="w-4 h-4" />
+                </div>
+              </button>
+
+              {/* Relatório Semanal Completo */}
+              <button
+                onClick={() => setActiveTab('weekly_report')}
+                className="p-5 bg-white rounded-3xl border border-slate-200/80 shadow-xs hover:border-indigo-300 hover:shadow-md transition text-left group cursor-pointer flex flex-col justify-between"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+                    <FileText className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900 group-hover:text-indigo-600 transition">
+                      Relatório Semanal
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Comparativos de estudos, finanças e metas
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-400 group-hover:text-indigo-600">
+                  <span>Ver análise</span>
+                  <ChevronRight className="w-4 h-4" />
+                </div>
+              </button>
+
+              {/* Cofre de Dados & Configurações */}
+              <button
+                onClick={() => setActiveTab('settings')}
+                className="p-5 bg-white rounded-3xl border border-slate-200/80 shadow-xs hover:border-indigo-300 hover:shadow-md transition text-left group cursor-pointer flex flex-col justify-between"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+                    <Shield className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900 group-hover:text-indigo-600 transition">
+                      Cofre de Dados & Configurações
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Backup JSON, restauração, metas e notificações
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-400 group-hover:text-indigo-600">
+                  <span>Gerenciar cofre</span>
+                  <ChevronRight className="w-4 h-4" />
+                </div>
+              </button>
+            </div>
+          </div>
+        )}
       </main>
 
-      {/* Navegação Inferior Mobile — Compacta, Ergonômica & Touch-Friendly */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200/90 z-50 py-1.5 px-1 shadow-lg">
-        <div
-          ref={mobileNavRef}
-          className="flex items-center gap-1 overflow-x-auto scrollbar-none px-1 py-0.5"
-        >
+      {/* Navegação Inferior Mobile — 4 Botões Grandes, Ergonômicos & Sem Rolagem */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200/90 z-50 py-2 px-3 shadow-lg">
+        <div className="grid grid-cols-4 gap-1.5 max-w-md mx-auto">
           {[
-            { id: 'home' as const, label: 'Dashboard', icon: Layers, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
+            { id: 'home' as const, label: 'Hoje', icon: Layers, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
             { id: 'finance' as const, label: 'Finanças', icon: Wallet, activeColor: 'text-emerald-600 bg-emerald-50/90 border-emerald-200 shadow-xs' },
-            { id: 'studies' as const, label: 'Estudos', icon: BookOpen, activeColor: 'text-sky-600 bg-sky-50/90 border-sky-200 shadow-xs' },
-            { id: 'agenda' as const, label: 'Agenda', icon: CalendarDays, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
-            { id: 'gym' as const, label: 'Treino', icon: Dumbbell, activeColor: 'text-rose-600 bg-rose-50/90 border-rose-200 shadow-xs' },
-            { id: 'habits' as const, label: 'Hábitos', icon: CheckSquare, activeColor: 'text-emerald-600 bg-emerald-50/90 border-emerald-200 shadow-xs' },
-            { id: 'focus' as const, label: 'Foco', icon: Zap, activeColor: 'text-amber-600 bg-amber-50/90 border-amber-200 shadow-xs' },
-            { id: 'weekly_report' as const, label: 'Relatório', icon: FileText, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
-            { id: 'progress' as const, label: 'Conquistas', icon: Trophy, activeColor: 'text-amber-600 bg-amber-50/90 border-amber-200 shadow-xs' },
-            { id: 'settings' as const, label: 'Cofre', icon: Shield, activeColor: 'text-slate-700 bg-slate-100 border-slate-300 shadow-xs' },
+            { id: 'progress' as const, label: 'Progresso', icon: Trophy, activeColor: 'text-amber-600 bg-amber-50/90 border-amber-200 shadow-xs' },
+            { id: 'more' as const, label: 'Mais', icon: Grid, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
           ].map((tab) => {
             const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
+            const isActive = tab.id === 'more' ? (activeTab === 'more' || isMoreSubTab) : activeTab === tab.id;
             return (
               <button
                 key={tab.id}
-                data-active={isActive ? 'true' : 'false'}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex flex-col items-center justify-center min-w-[54px] px-1.5 py-1 rounded-xl border transition-all active:scale-95 shrink-0 ${
+                className={`flex flex-col items-center justify-center py-2 px-1 rounded-2xl border transition-all active:scale-95 cursor-pointer ${
                   isActive
                     ? `${tab.activeColor} font-black`
                     : 'border-transparent text-slate-400 hover:text-slate-600 font-bold hover:bg-slate-50'
                 }`}
               >
                 <Icon className={`w-5 h-5 ${isActive ? '' : 'text-slate-400'}`} />
-                <span className="text-[10px] mt-0.5 tracking-tight whitespace-nowrap">{tab.label}</span>
+                <span className="text-[11px] mt-0.5 tracking-tight font-bold">{tab.label}</span>
               </button>
             );
           })}
