@@ -398,8 +398,13 @@ export function App() {
       {/* Sidebar Desktop — Visual Claro & Gamificado */}
       <aside className="hidden md:flex flex-col w-72 bg-white border-r border-slate-200/90 p-5 shadow-xs">
         <div className="flex items-center gap-3 mb-6 px-1">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-amber-400 flex items-center justify-center text-white font-black text-xl shadow-md shadow-indigo-500/25">
-            ⚡
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-amber-400 flex items-center justify-center p-2.5 shadow-md shadow-indigo-500/25 shrink-0">
+            <svg viewBox="0 0 512 512" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M 172 150 C 172 133 186 120 203 120 L 360 120 C 372 120 378 128 374 137 L 348 186 C 345 192 338 196 331 196 L 240 196 L 240 242 L 322 242 C 332 242 337 249 333 258 L 312 296 C 309 302 302 306 295 306 L 240 306 L 240 376 C 240 393 225 406 206 406 C 187 406 172 393 172 376 Z"
+                fill="#FFFFFF"
+              />
+            </svg>
           </div>
           <div>
             <div className="flex items-center gap-1.5">

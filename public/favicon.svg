@@ -1,4 +1,36 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <rect width="32" height="32" rx="8" fill="#4F46E5"/>
-  <path d="M18 4L7 17H15L14 28L25 15H17L18 4Z" fill="#F59E0B" stroke="#F59E0B" stroke-width="1.5" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <!-- Gradiente de fundo índigo/violeta -->
+    <linearGradient id="focusup-bg" x1="10%" y1="92%" x2="90%" y2="8%">
+      <stop offset="0%" stop-color="#3730a3"/>
+      <stop offset="45%" stop-color="#4f46e5"/>
+      <stop offset="85%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+
+    <!-- Brilho âmbar superior direito -->
+    <radialGradient id="focusup-amber" cx="88%" cy="14%" r="56%">
+      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.9"/>
+      <stop offset="42%" stop-color="#f59e0b" stop-opacity="0.45"/>
+      <stop offset="75%" stop-color="#f59e0b" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Sombra suave para destacar o F -->
+    <filter id="f-shadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#1e1b4b" flood-opacity="0.38"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle Base -->
+  <rect width="512" height="512" rx="124" fill="url(#focusup-bg)"/>
+  <rect width="512" height="512" rx="124" fill="url(#focusup-amber)"/>
+
+  <!-- Letra F Estilizada -->
+  <g filter="url(#f-shadow)">
+    <path
+      d="M 172 150 C 172 133 186 120 203 120 L 360 120 C 372 120 378 128 374 137 L 348 186 C 345 192 338 196 331 196 L 240 196 L 240 242 L 322 242 C 332 242 337 249 333 258 L 312 296 C 309 302 302 306 295 306 L 240 306 L 240 376 C 240 393 225 406 206 406 C 187 406 172 393 172 376 Z"
+      fill="#FFFFFF"
+    />
+  </g>
 </svg>
