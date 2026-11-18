@@ -116,7 +116,9 @@ export function useSpeechRecognition(options?: {
         wasCancelledRef.current = true;
         try {
           recognitionRef.current.abort();
-        } catch {}
+        } catch (abortErr) {
+          console.debug('SpeechRecognition abort ignorado:', abortErr);
+        }
         recognitionRef.current = null;
       }
 
@@ -185,7 +187,9 @@ export function useSpeechRecognition(options?: {
             if (recognitionRef.current) {
               try {
                 recognitionRef.current.stop();
-              } catch {}
+              } catch (stopErr) {
+                console.debug('SpeechRecognition stop ignorado:', stopErr);
+              }
             }
           }, 1800);
         }
@@ -233,7 +237,8 @@ export function useSpeechRecognition(options?: {
 
       recognitionRef.current = recognition;
       recognition.start();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      console.warn('Falha ao iniciar SpeechRecognition:', err);
       setError('Falha ao iniciar o microfone no navegador.');
       setIsListening(false);
     }
@@ -245,7 +250,9 @@ export function useSpeechRecognition(options?: {
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
-        } catch {}
+        } catch (abortErr) {
+          console.debug('SpeechRecognition abort ignorado:', abortErr);
+        }
       }
     };
   }, [clearTimers]);

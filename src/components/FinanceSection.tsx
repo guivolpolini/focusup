@@ -54,6 +54,8 @@ import {
 } from '../lib/financeEngine';
 import { parseVoiceFinanceCommand } from '../lib/voiceFinanceParser';
 import { useSpeechRecognition } from '../lib/useSpeechRecognition';
+import { formatDateToLocalYYYYMMDD } from '../lib/srsEngine';
+import { useFeedback } from './FeedbackProvider';
 import type {
   FinanceTransaction,
   FinanceCard,
@@ -81,6 +83,7 @@ const FREQUENCY_LABELS: Record<FinanceRecurringFrequency, string> = {
 };
 
 export function FinanceSection() {
+  const { toast, confirm } = useFeedback();
   const [currentMonthKey, setCurrentMonthKey] = useState<string>(() => getMonthKey());
   const [activeSubTab, setActiveSubTab] = useState<'summary' | 'recurring' | 'transactions' | 'cards'>('summary');
 
@@ -110,7 +113,7 @@ export function FinanceSection() {
   const [showRecurringModal, setShowRecurringModal] = useState<boolean>(false);
   const [editingRecurring, setEditingRecurring] = useState<FinanceRecurringExpense | null>(null);
   const [payingOccurrence, setPayingOccurrence] = useState<RecurringOccurrence | null>(null);
-  const [payDateStr, setPayDateStr] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [payDateStr, setPayDateStr] = useState<string>(() => formatDateToLocalYYYYMMDD(new Date()));
   const [payAmountStr, setPayAmountStr] = useState<string>('');
 
   // Consultas Reativas do Dexie
@@ -227,7 +230,7 @@ export function FinanceSection() {
   const [txDescription, setTxDescription] = useState('');
   const [txAmountStr, setTxAmountStr] = useState('');
   const [txCategoryId, setTxCategoryId] = useState('');
-  const [txDate, setTxDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [txDate, setTxDate] = useState(() => formatDateToLocalYYYYMMDD(new Date()));
   const [txPaymentMethod, setTxPaymentMethod] = useState<FinancePaymentMethod>('pix');
   const [txCardId, setTxCardId] = useState('');
   const [txInstallments, setTxInstallments] = useState(1);
@@ -236,7 +239,7 @@ export function FinanceSection() {
   const [recName, setRecName] = useState('');
   const [recAmountStr, setRecAmountStr] = useState('');
   const [recCategoryId, setRecCategoryId] = useState('');
-  const [recFirstDueDate, setRecFirstDueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [recFirstDueDate, setRecFirstDueDate] = useState(() => formatDateToLocalYYYYMMDD(new Date()));
   const [recHasDueDate, setRecHasDueDate] = useState<boolean>(true);
   const [recFrequency, setRecFrequency] = useState<FinanceRecurringFrequency>('monthly');
   const [recPaymentMethod, setRecPaymentMethod] = useState<FinancePaymentMethod>('pix');
@@ -352,7 +355,7 @@ export function FinanceSection() {
     setTxType(type);
     setTxDescription('');
     setTxAmountStr('');
-    setTxDate(new Date().toISOString().slice(0, 10));
+    setTxDate(formatDateToLocalYYYYMMDD(new Date()));
     setTxPaymentMethod('pix');
     setTxCardId(cards[0]?.id || '');
     setTxInstallments(1);
@@ -452,14 +455,29 @@ export function FinanceSection() {
   // Excluir Transação
   const handleDeleteTransaction = async (id: string, installmentPlanId?: string) => {
     if (installmentPlanId) {
-      if (confirm('Esta compra faz parte de um parcelamento. Deseja excluir todas as parcelas deste plano?')) {
+      const deleteAll = await confirm({
+        title: 'Excluir parcelamento',
+        message: 'Esta compra faz parte de um parcelamento. Deseja excluir todas as parcelas deste plano?',
+        confirmLabel: 'Excluir todas',
+        cancelLabel: 'Só esta parcela',
+        destructive: true,
+      });
+      if (deleteAll) {
         const related = transactions.filter((t) => t.installmentPlanId === installmentPlanId);
         await db.financeTransactions.bulkDelete(related.map((t) => t.id));
+        toast.info('Todas as parcelas foram excluídas.');
         return;
       }
     }
-    if (confirm('Deseja excluir este lançamento financeiro?')) {
+    const ok = await confirm({
+      title: 'Excluir lançamento',
+      message: 'Deseja excluir este lançamento financeiro?',
+      confirmLabel: 'Excluir',
+      destructive: true,
+    });
+    if (ok) {
       await db.financeTransactions.delete(id);
+      toast.info('Lançamento excluído.');
     }
   };
 
@@ -477,7 +495,7 @@ export function FinanceSection() {
       '';
     setRecCategoryId(defaultExpCat);
     setRecHasDueDate(true);
-    setRecFirstDueDate(`${currentMonthKey}-${new Date().toISOString().slice(8, 10)}`);
+    setRecFirstDueDate(`${currentMonthKey}-${formatDateToLocalYYYYMMDD(new Date()).slice(8, 10)}`);
     setRecFrequency('monthly');
     setRecPaymentMethod('pix');
     setRecCardId(cards[0]?.id || '');
@@ -556,18 +574,21 @@ export function FinanceSection() {
   };
 
   const handleDeleteRecurring = async (rec: FinanceRecurringExpense) => {
-    if (
-      confirm(
-        `Deseja excluir o gasto fixo "${rec.name}"?\n\nOs pagamentos já realizados em meses anteriores serão preservados no seu histórico de lançamentos.`
-      )
-    ) {
+    const ok = await confirm({
+      title: `Excluir "${rec.name}"`,
+      message: `Deseja excluir o gasto fixo "${rec.name}"?\n\nOs pagamentos já realizados em meses anteriores serão preservados no seu histórico de lançamentos.`,
+      confirmLabel: 'Excluir',
+      destructive: true,
+    });
+    if (ok) {
       await db.financeRecurring.delete(rec.id);
+      toast.info(`Gasto fixo "${rec.name}" excluído.`);
     }
   };
 
   const openPayOccurrenceModal = (occ: RecurringOccurrence) => {
     setPayingOccurrence(occ);
-    setPayDateStr(new Date().toISOString().slice(0, 10));
+    setPayDateStr(formatDateToLocalYYYYMMDD(new Date()));
     setPayAmountStr((occ.expectedAmountInCents / 100).toFixed(2).replace('.', ','));
   };
 
@@ -586,7 +607,7 @@ export function FinanceSection() {
 
     const tx = buildRecurringPaymentTransaction({
       occurrence: payingOccurrence,
-      paidDate: payDateStr || new Date().toISOString().slice(0, 10),
+      paidDate: payDateStr || formatDateToLocalYYYYMMDD(new Date()),
       paidAmountInCents,
       cards,
       existingTransaction: existingTx,
@@ -599,8 +620,15 @@ export function FinanceSection() {
 
   const handleUndoOccurrencePayment = async (occ: RecurringOccurrence) => {
     const txId = occ.paidTransactionId || `tx_rec_${occ.occurrenceKey}`;
-    if (confirm(`Deseja desfazer o pagamento de "${occ.name}" e voltar para Pendente?`)) {
+    const ok = await confirm({
+      title: 'Desfazer pagamento',
+      message: `Deseja desfazer o pagamento de "${occ.name}" e voltar para Pendente?`,
+      confirmLabel: 'Desfazer',
+      destructive: true,
+    });
+    if (ok) {
       await db.financeTransactions.delete(txId);
+      toast.info(`Pagamento de "${occ.name}" revertido.`);
     }
   };
 
@@ -663,7 +691,7 @@ export function FinanceSection() {
       (c) => c.name.toLowerCase().trim() === trimmed.toLowerCase() && c.type === newCatType
     );
     if (alreadyExists) {
-      alert(`Já existe uma categoria de ${newCatType === 'expense' ? 'despesa' : 'receita'} chamada "${trimmed}".`);
+      toast.error(`Já existe uma categoria de ${newCatType === 'expense' ? 'despesa' : 'receita'} chamada "${trimmed}".`);
       return;
     }
 
@@ -694,7 +722,7 @@ export function FinanceSection() {
     // Garante que o usuário mantenha pelo menos uma categoria desse tipo
     const remainingSameType = categories.filter((c) => c.type === cat.type && c.id !== cat.id);
     if (remainingSameType.length === 0) {
-      alert(`Você não pode excluir todas as categorias de ${cat.type === 'expense' ? 'despesa' : 'receita'}. Mantenha pelo menos uma ativa.`);
+      toast.error(`Você não pode excluir todas as categorias de ${cat.type === 'expense' ? 'despesa' : 'receita'}. Mantenha pelo menos uma ativa.`);
       return;
     }
 
@@ -703,7 +731,13 @@ export function FinanceSection() {
       ? `Deseja realmente excluir a categoria padrão "${cat.name}"? Seus lançamentos existentes continuarão seguros no histórico. Você poderá restaurá-la a qualquer momento clicando em "Restaurar categorias padrão".`
       : `Deseja excluir a categoria personalizada "${cat.name}"? Seus lançamentos existentes continuarão seguros no histórico.`;
 
-    if (!confirm(msg)) {
+    const confirmed = await confirm({
+      title: `Excluir categoria "${cat.name}"`,
+      message: msg,
+      confirmLabel: 'Excluir',
+      destructive: true,
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -813,39 +847,69 @@ export function FinanceSection() {
     await db.financeTransactions.bulkAdd(newTransactions);
     setShowCSVModal(false);
     setCsvPreviewRows([]);
-    alert(`${newTransactions.length} lançamentos importados com suas respectivas categorias!`);
+    toast.success(`${newTransactions.length} lançamentos importados com suas respectivas categorias.`);
   };
 
   // Auto-categorizar lançamentos já existentes no mês atual com 1 clique
   const handleAutoCategorizeExistingMonth = async () => {
     if (monthTransactions.length === 0) return;
 
-    let updatedCount = 0;
     const now = Date.now();
+    const toUpdate: FinanceTransaction[] = [];
 
     for (const tx of monthTransactions) {
       const inferred = inferCategoryFromDescription(tx.description, tx.type, categories);
       if (inferred.matched && inferred.categoryId && inferred.categoryId !== tx.categoryId) {
-        await db.financeTransactions.update(tx.id, {
+        toUpdate.push({
+          ...tx,
           categoryId: inferred.categoryId,
           updatedAt: now,
         });
-        updatedCount++;
       }
     }
 
-    if (updatedCount > 0) {
-      alert(
-        `✨ ${updatedCount} lançamento(s) de ${formatMonthYear(
+    if (toUpdate.length > 0) {
+      await db.financeTransactions.bulkPut(toUpdate);
+      toast.success(
+        `${toUpdate.length} lançamento(s) de ${formatMonthYear(
           currentMonthKey
-        )} foram re-categorizados automaticamente pelo nome do estabelecimento!`
+        )} foram re-categorizados automaticamente.`
       );
     } else {
-      alert(
-        'Todos os lançamentos identificáveis deste mês já estão nas categorias correspondentes. Você também pode trocar a categoria clicando diretamente no seletor de cada item na lista!'
+      toast.info(
+        'Todos os lançamentos identificáveis deste mês já estão nas categorias correspondentes.'
       );
     }
   };
+
+  // Fechar modais com tecla Escape
+  const hasOpenModal =
+    showRecurringModal ||
+    Boolean(payingOccurrence) ||
+    showTransactionModal ||
+    showCardModal ||
+    showBudgetModal ||
+    showNewCategoryModal ||
+    showCSVModal ||
+    showVoiceModal;
+
+  useEffect(() => {
+    if (!hasOpenModal) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowRecurringModal(false);
+        setPayingOccurrence(null);
+        setShowTransactionModal(false);
+        setShowCardModal(false);
+        setShowBudgetModal(false);
+        setShowNewCategoryModal(false);
+        setShowCSVModal(false);
+        setShowVoiceModal(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [hasOpenModal]);
 
   // Maior valor para escala do gráfico de evolução mensal
   const maxEvolutionValue = useMemo(() => {
@@ -1450,8 +1514,8 @@ export function FinanceSection() {
                                 : 'Sem vencimento fixo'}
                             </span>
                           </div>
-                          <div className="text-sm font-bold text-slate-900">
-                            {recurringSummary.nextDueOccurrence.name} —{' '}
+                          <div className="text-sm font-bold text-slate-900 tabular-nums">
+                            {recurringSummary.nextDueOccurrence.name} -{' '}
                             {formatCentsToBRL(
                               recurringSummary.nextDueOccurrence.expectedAmountInCents
                             )}
@@ -2080,7 +2144,7 @@ export function FinanceSection() {
                           ? `${prevMonthComparison.expenseChangePercent > 0 ? '+' : ''}${prevMonthComparison.expenseChangePercent.toFixed(
                               1
                             )}%`
-                          : '—'}
+                          : '-'}
                       </span>
                     </div>
                     <div className="text-xs text-slate-700">
@@ -2111,7 +2175,7 @@ export function FinanceSection() {
                           ? `${prevMonthComparison.incomeChangePercent > 0 ? '+' : ''}${prevMonthComparison.incomeChangePercent.toFixed(
                               1
                             )}%`
-                          : '—'}
+                          : '-'}
                       </span>
                     </div>
                     <div className="text-xs text-slate-700">
@@ -2875,8 +2939,17 @@ export function FinanceSection() {
       {/* MODAL: CADASTRAR / EDITAR GASTO FIXO */}
       {/* ============================================================ */}
       {showRecurringModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs"
+          onClick={() => setShowRecurringModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={editingRecurring ? 'Editar Gasto Fixo' : 'Novo Gasto Fixo Recorrente'}
+            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900">
                 {editingRecurring ? 'Editar Gasto Fixo' : 'Novo Gasto Fixo Recorrente'}
@@ -2983,7 +3056,7 @@ export function FinanceSection() {
                           const withoutDue = e.target.checked;
                           setRecHasDueDate(!withoutDue);
                           if (withoutDue) setRecFirstDueDate('');
-                          else setRecFirstDueDate(new Date().toISOString().slice(0, 10));
+                          else setRecFirstDueDate(formatDateToLocalYYYYMMDD(new Date()));
                         }}
                         className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5"
                       />
@@ -3005,7 +3078,7 @@ export function FinanceSection() {
                         type="button"
                         onClick={() => {
                           setRecHasDueDate(true);
-                          setRecFirstDueDate(new Date().toISOString().slice(0, 10));
+                          setRecFirstDueDate(formatDateToLocalYYYYMMDD(new Date()));
                         }}
                         className="text-[10px] text-emerald-600 font-semibold hover:underline"
                       >
@@ -3113,8 +3186,17 @@ export function FinanceSection() {
       {/* MODAL: CONFIRMAR PAGAMENTO DE GASTO FIXO (DAR BAIXA) */}
       {/* ============================================================ */}
       {payingOccurrence && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs"
+          onClick={() => setPayingOccurrence(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirmar pagamento"
+            className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900">
                 {payingOccurrence.paymentMethod === 'credit'
@@ -3211,8 +3293,17 @@ export function FinanceSection() {
       {/* MODAL: NOVA / EDITAR TRANSAÇÃO */}
       {/* ============================================================ */}
       {showTransactionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs"
+          onClick={() => setShowTransactionModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={editingTransaction ? 'Editar Lançamento' : 'Novo Lançamento'}
+            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900">
                 {editingTransaction
@@ -3436,8 +3527,17 @@ export function FinanceSection() {
       {/* MODAL: NOVO CARTÃO */}
       {/* ============================================================ */}
       {showCardModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs"
+          onClick={() => setShowCardModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Novo Cartão de Crédito"
+            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900">Novo Cartão de Crédito</h3>
               <button
@@ -3558,8 +3658,17 @@ export function FinanceSection() {
       {/* MODAL: DEFINIR LIMITE MENSAL */}
       {/* ============================================================ */}
       {showBudgetModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs"
+          onClick={() => setShowBudgetModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Definir Limite Mensal"
+            className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900">
                 Limite Mensal ({formatMonthYear(currentMonthKey)})
@@ -3618,8 +3727,17 @@ export function FinanceSection() {
       {/* MODAL: GERENCIAR E CRIAR CATEGORIAS */}
       {/* ============================================================ */}
       {showNewCategoryModal && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs"
+          onClick={() => setShowNewCategoryModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Categorias Financeiras"
+            className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-slate-900">Categorias Financeiras</h3>
@@ -3737,8 +3855,14 @@ export function FinanceSection() {
               <button
                 type="button"
                 onClick={async () => {
-                  if (confirm('Deseja restaurar todas as categorias padrão originais? Suas categorias personalizadas continuarão intactas.')) {
+                  const ok = await confirm({
+                    title: 'Restaurar categorias padrão',
+                    message: 'Deseja restaurar todas as categorias padrão originais? Suas categorias personalizadas continuarão intactas.',
+                    confirmLabel: 'Restaurar',
+                  });
+                  if (ok) {
                     await ensureDefaultFinanceCategories(true);
+                    toast.success('Categorias padrão restauradas.');
                   }
                 }}
                 className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline"
@@ -3761,8 +3885,17 @@ export function FinanceSection() {
       {/* MODAL: PREVIEW DE IMPORTAÇÃO CSV */}
       {/* ============================================================ */}
       {showCSVModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-xl space-y-4 max-h-[92vh] flex flex-col">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs"
+          onClick={() => setShowCSVModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Revisar Importação de Extrato"
+            className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-xl space-y-4 max-h-[92vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-slate-900">
@@ -4003,8 +4136,17 @@ export function FinanceSection() {
       {/* MODAL: GRAVAÇÃO POR COMANDO DE VOZ */}
       {/* ============================================================ */}
       {showVoiceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl text-center space-y-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs"
+          onClick={() => setShowVoiceModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Comando por Voz"
+            className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl text-center space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex justify-between items-center">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
                 Comando por Voz
@@ -4060,7 +4202,7 @@ export function FinanceSection() {
                 ) : (
                   <span className="text-[11px] text-slate-500 block">
                     {isListening
-                      ? 'Fale a frase completa — processa automaticamente ao pausar ou tocar aqui'
+                      ? 'Fale a frase completa (processa automaticamente ao pausar ou tocar aqui)'
                       : 'Diga o valor, onde gastou e forma de pagamento'}
                   </span>
                 )}

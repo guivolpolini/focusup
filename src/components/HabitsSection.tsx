@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
-import confetti from 'canvas-confetti';
+import { triggerConfetti } from '../lib/confetti';
+import { useFeedback } from './FeedbackProvider';
 import {
   CheckSquare,
   CheckCircle2,
@@ -26,6 +27,7 @@ interface HabitsSectionProps {
 }
 
 export function HabitsSection({ habits, habitLogs }: HabitsSectionProps) {
+  const { toast, confirm } = useFeedback();
   const [newHabitName, setNewHabitName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -72,7 +74,7 @@ export function HabitsSection({ habits, habitLogs }: HabitsSectionProps) {
         updatedAt: nowTime,
       });
 
-      confetti({
+      void triggerConfetti({
         particleCount: 40,
         spread: 60,
         origin: { y: 0.8 },
@@ -109,12 +111,19 @@ export function HabitsSection({ habits, habitLogs }: HabitsSectionProps) {
 
   // Excluir hábito
   const handleDeleteHabit = async (id: string, name: string) => {
-    if (window.confirm(`Excluir o hábito "${name}"?`)) {
+    const ok = await confirm({
+      title: 'Excluir hábito',
+      message: `Excluir o hábito "${name}" e todo o histórico de marcações dele?`,
+      confirmLabel: 'Excluir',
+      destructive: true,
+    });
+    if (ok) {
       await db.habits.delete(id);
       const logsToDelete = habitLogs.filter((l) => l.habitId === id);
       if (logsToDelete.length > 0) {
         await db.habitLogs.bulkDelete(logsToDelete.map((l) => l.id));
       }
+      toast.info(`Hábito "${name}" excluído.`);
     }
   };
 

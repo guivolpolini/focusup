@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import confetti from 'canvas-confetti';
+import { triggerConfetti } from '../lib/confetti';
+import { formatDateToLocalYYYYMMDD } from '../lib/srsEngine';
 import {
   CalendarDays,
   CalendarClock,
@@ -31,7 +32,7 @@ interface AgendaCardProps {
 }
 
 export function AgendaCard({ onOpenAgendaPage, onOpenNewEventModal }: AgendaCardProps) {
-  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const todayStr = formatDateToLocalYYYYMMDD(new Date());
   const todayLabel = useMemo(() => formatAgendaDateFullBR(todayStr), [todayStr]);
 
   // Consulta reativa do Dexie
@@ -72,11 +73,7 @@ export function AgendaCard({ onOpenAgendaPage, onOpenNewEventModal }: AgendaCard
     });
 
     if (newStatus === 'completed') {
-      try {
-        confetti({ particleCount: 30, spread: 50, origin: { y: 0.8 } });
-      } catch {
-        // Ignorar se bloqueado
-      }
+      void triggerConfetti({ particleCount: 30, spread: 50, origin: { y: 0.8 } });
     }
   };
 
@@ -311,8 +308,17 @@ export function AgendaCard({ onOpenAgendaPage, onOpenNewEventModal }: AgendaCard
 
       {/* Modal Rápido de Adiamento no Dashboard */}
       {postponingOcc && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-xl border border-slate-100 space-y-3">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4"
+          onClick={() => setPostponingOcc(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Adiar Compromisso"
+            className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-xl border border-slate-100 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-1.5 text-slate-900 font-extrabold text-sm">
                 <CalendarClock className="w-4 h-4 text-amber-600" />

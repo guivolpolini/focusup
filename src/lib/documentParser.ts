@@ -331,10 +331,10 @@ export function parseCollegeTimetable(content: string, filename: string): Parsed
       }
 
       let clean = line
-        .replace(/^[-\[\]—•*~|]+/, '')
-        .replace(/^(?:cos|cs|cics|town|tm|mm|tien|tos|tmos|disc|sub\d?|sur|turma|\d{1,2}|[A-Z0-9\/]{3,15})\s+/i, '')
-        .replace(/^(?:cos|cs|cics|town|tm|mm|tien|tos|tmos|disc|sub\d?|sur|turma|\d{1,2}|[A-Z0-9\/]{3,15})\s+/i, '')
-        .replace(/^(?:cos|cs|cics|town|tm|mm|tien|tos|tmos|disc|sub\d?|sur|turma|\d{1,2}|[A-Z0-9\/]{3,15})\s+/i, '')
+        .replace(/^[-[]—•*~|]+/, '')
+        .replace(/^(?:cos|cs|cics|town|tm|mm|tien|tos|tmos|disc|sub\d?|sur|turma|\d{1,2}|[A-Z0-9/]{3,15})\s+/i, '')
+        .replace(/^(?:cos|cs|cics|town|tm|mm|tien|tos|tmos|disc|sub\d?|sur|turma|\d{1,2}|[A-Z0-9/]{3,15})\s+/i, '')
+        .replace(/^(?:cos|cs|cics|town|tm|mm|tien|tos|tmos|disc|sub\d?|sur|turma|\d{1,2}|[A-Z0-9/]{3,15})\s+/i, '')
         .trim();
 
       clean = clean
@@ -501,7 +501,7 @@ function parseTextLines(content: string, filename: string): ParsedDocumentResult
 
     // 1. Detectar cabeçalho explícito de matéria (#, Matéria:, Disciplina:, Componente:)
     const explicitSubjectMatch = line.match(
-      /^(?:#+\s*|(?:Matéria|Disciplina|Componente):\s*)([A-Za-z0-9À-ÿ\s\-\_]+)/i
+      /^(?:#+\s*|(?:Matéria|Disciplina|Componente):\s*)([A-Za-z0-9À-ÿ\s\-_]+)/i
     );
 
     // 2. Detectar se a linha é um título de matéria pelo vocabulário acadêmico (sem data)
@@ -569,7 +569,7 @@ function parseTextLines(content: string, filename: string): ParsedDocumentResult
         // Se a linha tiver separador "|" ou "-", tentar extrair matéria da mesma linha
         // Ex: "Cálculo II | P1 | 15/11" ou "15/11 - Engenharia de Software - P1"
         if (line.includes('|') || line.includes(' - ')) {
-          const parts = line.split(/[|\-]|\s{2,}/).map((p) => p.trim()).filter((p) => p.length > 0);
+          const parts = line.split(/[|-]|\s{2,}/).map((p) => p.trim()).filter((p) => p.length > 0);
           const nonDateParts = parts.filter((p) => !dateRegex.test(p));
 
           if (nonDateParts.length >= 2) {
@@ -627,9 +627,9 @@ function parseTextLines(content: string, filename: string): ParsedDocumentResult
     // 5. Detectar tópicos da trilha (linhas com marcadores "-", "*", "•", ou numeração "1.")
     if (
       currentTrack &&
-      (line.startsWith('-') || line.startsWith('*') || line.startsWith('•') || /^\d+[\.\)]\s*/.test(line))
+      (line.startsWith('-') || line.startsWith('*') || line.startsWith('•') || /^\d+[.)]\s*/.test(line))
     ) {
-      const topicTitle = line.replace(/^[-*•\d.\)]+\s*/, '').trim();
+      const topicTitle = line.replace(/^[-*•\d.)]+\s*/, '').trim();
       if (topicTitle.length > 2) {
         currentTrack.modules[0].items.push({
           id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,

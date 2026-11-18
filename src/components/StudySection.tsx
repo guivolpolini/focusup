@@ -1,5 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { formatDateToLocalYYYYMMDD } from '../lib/srsEngine';
+import { useFeedback } from './FeedbackProvider';
 import {
   BookOpen,
   Plus,
@@ -36,6 +38,7 @@ interface StudySectionProps {
 }
 
 export function StudySection({ onStartFocus }: StudySectionProps) {
+  const { toast, confirm } = useFeedback();
   // Dados Reativos do Dexie
   const subjects = useLiveQuery(() => db.subjects.filter((s) => !s.archived).toArray()) || [];
   const sessions = useLiveQuery(() => db.studySessions.toArray()) || [];
@@ -47,7 +50,7 @@ export function StudySection({ onStartFocus }: StudySectionProps) {
   const [showLogModal, setShowLogModal] = useState<boolean>(false);
   const [editingSession, setEditingSession] = useState<StudySession | null>(null);
   const [logSubjectId, setLogSubjectId] = useState<string>('');
-  const [logDateStr, setLogDateStr] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [logDateStr, setLogDateStr] = useState<string>(() => formatDateToLocalYYYYMMDD(new Date()));
   const [logHours, setLogHours] = useState<number>(1);
   const [logMinutes, setLogMinutes] = useState<number>(0);
   const [logNotes, setLogNotes] = useState<string>('');
@@ -115,7 +118,7 @@ export function StudySection({ onStartFocus }: StudySectionProps) {
   const handleOpenNewLogModal = (preselectedSubjectId?: string) => {
     setEditingSession(null);
     setLogSubjectId(preselectedSubjectId || (subjects.length > 0 ? subjects[0].id : ''));
-    setLogDateStr(new Date().toISOString().slice(0, 10));
+    setLogDateStr(formatDateToLocalYYYYMMDD(new Date()));
     setLogHours(1);
     setLogMinutes(0);
     setLogNotes('');
@@ -127,8 +130,8 @@ export function StudySection({ onStartFocus }: StudySectionProps) {
     setEditingSession(session);
     setLogSubjectId(session.subjectId || (subjects.length > 0 ? subjects[0].id : ''));
     const sessionDate = session.startedAt
-      ? new Date(session.startedAt).toISOString().slice(0, 10)
-      : new Date().toISOString().slice(0, 10);
+      ? formatDateToLocalYYYYMMDD(new Date(session.startedAt))
+      : formatDateToLocalYYYYMMDD(new Date());
     setLogDateStr(sessionDate);
     const totalMins = Math.max(1, Math.round((session.actualDurationSeconds || 0) / 60));
     setLogHours(Math.floor(totalMins / 60));
@@ -141,13 +144,13 @@ export function StudySection({ onStartFocus }: StudySectionProps) {
   const handleSaveLog = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!logSubjectId && subjects.length > 0) {
-      alert('Por favor, selecione uma matéria para registrar o estudo.');
+      toast.error('Por favor, selecione uma matéria para registrar o estudo.');
       return;
     }
 
     const totalMinutes = logHours * 60 + logMinutes;
     if (totalMinutes <= 0) {
-      alert('Informe um tempo de estudo válido (mínimo de 1 minuto).');
+      toast.error('Informe um tempo de estudo válido (mínimo de 1 minuto).');
       return;
     }
 
@@ -162,13 +165,21 @@ export function StudySection({ onStartFocus }: StudySectionProps) {
 
     await db.studySessions.put(studySession);
     setShowLogModal(false);
+    toast.success(editingSession ? 'Registro de estudo atualizado.' : 'Sessão de estudo registrada!');
   };
 
   // Excluir Registro de Estudo
   const handleDeleteLog = async (session: StudySession) => {
     const subName = subjectMap.get(session.subjectId || '')?.name || 'Estudo';
-    if (confirm(`Deseja excluir este registro de estudo de "${subName}"?`)) {
+    const ok = await confirm({
+      title: 'Excluir registro de estudo',
+      message: `Deseja excluir este registro de estudo de "${subName}"?`,
+      confirmLabel: 'Excluir',
+      destructive: true,
+    });
+    if (ok) {
       await db.studySessions.delete(session.id);
+      toast.info('Registro excluído.');
     }
   };
 
@@ -225,14 +236,30 @@ export function StudySection({ onStartFocus }: StudySectionProps) {
 
   // Excluir Matéria
   const handleDeleteSubject = async (sub: Subject) => {
-    if (
-      confirm(
-        `Deseja realmente excluir a matéria "${sub.name}"?\n\nSeus registros de estudo anteriores serão mantidos no histórico.`
-      )
-    ) {
+    const ok = await confirm({
+      title: `Excluir "${sub.name}"`,
+      message: `Deseja realmente excluir a matéria "${sub.name}"?\n\nSeus registros de estudo anteriores serão mantidos no histórico.`,
+      confirmLabel: 'Excluir',
+      destructive: true,
+    });
+    if (ok) {
       await db.subjects.delete(sub.id);
+      toast.info(`Matéria "${sub.name}" excluída.`);
     }
   };
+
+  // Fechar modais com Escape
+  useEffect(() => {
+    if (!showLogModal && !showSubjectModal) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowLogModal(false);
+        setShowSubjectModal(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showLogModal, showSubjectModal]);
 
   // Preset rápido de tempo no modal de estudo
   const handleSetQuickDuration = (h: number, m: number) => {
@@ -523,8 +550,8 @@ export function StudySection({ onStartFocus }: StudySectionProps) {
               const sub = subjectMap.get(session.subjectId || '');
               const totalMins = Math.max(1, Math.round((session.actualDurationSeconds || 0) / 60));
               const dateStr = session.startedAt
-                ? new Date(session.startedAt).toISOString().slice(0, 10)
-                : new Date(session.createdAt).toISOString().slice(0, 10);
+                ? formatDateToLocalYYYYMMDD(new Date(session.startedAt))
+                : formatDateToLocalYYYYMMDD(new Date(session.createdAt));
 
               return (
                 <div
@@ -587,8 +614,17 @@ export function StudySection({ onStartFocus }: StudySectionProps) {
       {/* MODAL 1: REGISTRAR / EDITAR ESTUDO */}
       {/* ============================================================ */}
       {showLogModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs"
+          onClick={() => setShowLogModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={editingSession ? 'Editar Registro de Estudo' : 'Registrar Estudo'}
+            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <BookOpen className="w-5 h-5 text-indigo-600" />
@@ -761,8 +797,17 @@ export function StudySection({ onStartFocus }: StudySectionProps) {
       {/* MODAL 2: CADASTRAR / EDITAR MATÉRIA */}
       {/* ============================================================ */}
       {showSubjectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs"
+          onClick={() => setShowSubjectModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={editingSubject ? 'Editar Matéria' : 'Nova Matéria'}
+            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-base font-black text-slate-900">
                 {editingSubject ? 'Editar Matéria' : 'Nova Matéria'}

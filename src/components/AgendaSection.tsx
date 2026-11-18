@@ -1,6 +1,8 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import confetti from 'canvas-confetti';
+import { triggerConfetti } from '../lib/confetti';
+import { formatDateToLocalYYYYMMDD } from '../lib/srsEngine';
+import { useFeedback } from './FeedbackProvider';
 import {
   CalendarDays,
   Calendar as CalendarIcon,
@@ -34,7 +36,6 @@ import {
   formatAgendaDateBR,
   formatAgendaDateFullBR,
   getUpcomingEvents,
-  calculateReminderTimestamp,
   calculatePostponedDate,
   resolveEventStatus,
 } from '../lib/agendaEngine';
@@ -53,7 +54,8 @@ import type {
 } from '../types';
 
 export function AgendaSection() {
-  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const { toast, confirm } = useFeedback();
+  const todayStr = formatDateToLocalYYYYMMDD(new Date());
 
   // Visualizações: mês, semana, dia, próximos
   const [viewMode, setViewMode] = useState<'month' | 'week' | 'day' | 'upcoming'>('month');
@@ -74,7 +76,6 @@ export function AgendaSection() {
 
   // Notificações
   const [notifStatus, setNotifStatus] = useState<NotificationPermission | 'unsupported'>('default');
-  const notifiedIdsRef = useRef<Set<string>>(new Set());
 
   // Modais de Criação e Edição
   const [showEventModal, setShowEventModal] = useState<boolean>(false);
@@ -167,7 +168,7 @@ export function AgendaSection() {
     // Busca ocorrências dos próximos 60 dias
     const next60Days = new Date();
     next60Days.setDate(next60Days.getDate() + 60);
-    const end60Str = next60Days.toISOString().slice(0, 10);
+    const end60Str = formatDateToLocalYYYYMMDD(next60Days);
     const wideOccs = getEventOccurrencesForRange(events, todayStr, end60Str);
 
     return getUpcomingEvents(
@@ -185,45 +186,23 @@ export function AgendaSection() {
     );
   }, [events, todayStr, selectedCategoryFilter, selectedStatusFilter, searchQuery]);
 
-  // Checagem de permissão de notificação inicial
+  // Checagem de permissão de notificação inicial (lembretes agora rodam globalmente via AgendaReminderRunner)
   useEffect(() => {
     setNotifStatus(getNotificationPermissionStatus());
   }, []);
 
-  // Loop inteligente de lembretes locais (executado a cada 30 segundos)
+  // Fechar modais com tecla Escape
   useEffect(() => {
-    const checkReminders = async () => {
-      if (getNotificationPermissionStatus() !== 'granted') return;
-      const nowMs = Date.now();
-      const currentTodayStr = new Date().toISOString().slice(0, 10);
-      const todayOccs = getEventOccurrencesForRange(events, currentTodayStr, currentTodayStr);
-
-      for (const occ of todayOccs) {
-        if (occ.completed || occ.reminder === 'none') continue;
-        const reminderTs = calculateReminderTimestamp(occ.date, occ.startTime, occ.reminder);
-        if (!reminderTs) continue;
-
-        const notifKey = `${occ.id}_${reminderTs}`;
-        // Se já foi notificado nesta sessão, ignora
-        if (notifiedIdsRef.current.has(notifKey)) continue;
-
-        // Dispara se estiver na janela de tempo (entre o horário do lembrete e até 2 minutos depois)
-        if (nowMs >= reminderTs && nowMs <= reminderTs + 120000) {
-          notifiedIdsRef.current.add(notifKey);
-          const timeText = formatAgendaTime(occ.startTime, occ.endTime);
-          await sendLocalNotification(`Lembrete FocusUp: ${occ.title}`, {
-            body: `${timeText} • ${getAgendaCategoryMeta(occ.category).label}${
-              occ.description ? `\n${occ.description}` : ''
-            }`,
-          });
-        }
+    if (!showEventModal && !postponingOcc) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowEventModal(false);
+        setPostponingOcc(null);
       }
     };
-
-    checkReminders();
-    const interval = setInterval(checkReminders, 30000);
-    return () => clearInterval(interval);
-  }, [events]);
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showEventModal, postponingOcc]);
 
   // Abertura do modal de criação
   const handleOpenCreateModal = (targetDateStr?: string) => {
@@ -263,7 +242,7 @@ export function AgendaSection() {
   const handleSaveEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim()) {
-      alert('Informe o título do compromisso.');
+      toast.error('Informe o título do compromisso.');
       return;
     }
 
@@ -308,11 +287,7 @@ export function AgendaSection() {
       });
 
       if (formStatus === 'completed') {
-        try {
-          confetti({ particleCount: 35, spread: 50, origin: { y: 0.75 } });
-        } catch {
-          // Ignorar se bloqueado
-        }
+        void triggerConfetti({ particleCount: 35, spread: 50, origin: { y: 0.75 } });
       }
     }
 
@@ -336,11 +311,7 @@ export function AgendaSection() {
     });
 
     if (newStatus === 'completed') {
-      try {
-        confetti({ particleCount: 30, spread: 55, origin: { y: 0.8 } });
-      } catch {
-        // Ignorar se bloqueado
-      }
+      void triggerConfetti({ particleCount: 30, spread: 55, origin: { y: 0.8 } });
     }
   };
 
@@ -395,8 +366,15 @@ export function AgendaSection() {
 
   // Excluir evento
   const handleDeleteEvent = async (occ: AgendaOccurrence) => {
-    if (confirm(`Deseja realmente excluir o compromisso "${occ.title}"?`)) {
+    const ok = await confirm({
+      title: 'Excluir compromisso',
+      message: `Deseja realmente excluir o compromisso "${occ.title}"?`,
+      confirmLabel: 'Excluir',
+      destructive: true,
+    });
+    if (ok) {
       await db.agendaEvents.delete(occ.masterEventId);
+      toast.info('Compromisso excluído.');
     }
   };
 
@@ -419,9 +397,9 @@ export function AgendaSection() {
     } else if (viewMode === 'week') {
       d.setDate(d.getDate() - 7);
     } else if (viewMode === 'day') {
-      const cur = new Date(selectedDateStr + 'T00:00:00');
+      const cur = new Date(selectedDateStr + 'T12:00:00');
       cur.setDate(cur.getDate() - 1);
-      const newStr = cur.toISOString().slice(0, 10);
+      const newStr = formatDateToLocalYYYYMMDD(cur);
       setSelectedDateStr(newStr);
       d.setDate(d.getDate() - 1);
     }
@@ -435,9 +413,9 @@ export function AgendaSection() {
     } else if (viewMode === 'week') {
       d.setDate(d.getDate() + 7);
     } else if (viewMode === 'day') {
-      const cur = new Date(selectedDateStr + 'T00:00:00');
+      const cur = new Date(selectedDateStr + 'T12:00:00');
       cur.setDate(cur.getDate() + 1);
-      const newStr = cur.toISOString().slice(0, 10);
+      const newStr = formatDateToLocalYYYYMMDD(cur);
       setSelectedDateStr(newStr);
       d.setDate(d.getDate() + 1);
     }
@@ -1164,8 +1142,17 @@ export function AgendaSection() {
       {/* 7. MODAL DE CRIAÇÃO E EDIÇÃO DE EVENTO */}
       {/* ============================================================ */}
       {showEventModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-xl border border-slate-100 space-y-5 my-8">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 overflow-y-auto"
+          onClick={() => setShowEventModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={editingEvent ? 'Editar Compromisso' : 'Novo Compromisso'}
+            className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-xl border border-slate-100 space-y-5 my-8"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <CalendarDays className="w-5 h-5 text-indigo-600" />
@@ -1381,8 +1368,17 @@ export function AgendaSection() {
       {/* 8. MODAL DE ADIAR COMPROMISSO */}
       {/* ============================================================ */}
       {postponingOcc && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl border border-slate-100 space-y-4 my-8">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 overflow-y-auto"
+          onClick={() => setPostponingOcc(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Adiar Compromisso"
+            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl border border-slate-100 space-y-4 my-8"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <CalendarClock className="w-5 h-5 text-amber-600" />

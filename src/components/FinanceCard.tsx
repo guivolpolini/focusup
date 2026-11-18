@@ -129,7 +129,7 @@ export function FinanceCard({ onOpenFinancePage }: FinanceCardProps) {
           </div>
 
           <div
-            className={`text-2xl font-black tracking-tight ${
+            className={`text-2xl font-black tracking-tight tabular-nums ${
               isBalancePositive ? 'text-slate-900' : 'text-rose-600'
             }`}
           >
@@ -145,7 +145,7 @@ export function FinanceCard({ onOpenFinancePage }: FinanceCardProps) {
               </span>
               <div className="truncate">
                 <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Receitas</div>
-                <div className="text-xs font-black text-emerald-700 truncate">
+                <div className="text-xs font-black text-emerald-700 truncate tabular-nums">
                   {formatCentsToBRL(summary.totalIncomeInCents)}
                 </div>
               </div>
@@ -157,7 +157,7 @@ export function FinanceCard({ onOpenFinancePage }: FinanceCardProps) {
               </span>
               <div className="truncate">
                 <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Despesas</div>
-                <div className="text-xs font-black text-slate-800 truncate">
+                <div className="text-xs font-black text-slate-800 truncate tabular-nums">
                   {formatCentsToBRL(summary.totalExpenseInCents)}
                 </div>
               </div>

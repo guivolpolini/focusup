@@ -62,7 +62,20 @@ export function loadTimerState(): ActiveTimerState | null {
   try {
     const raw = localStorage.getItem(TIMER_STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as ActiveTimerState;
+    const parsed = JSON.parse(raw) as Partial<ActiveTimerState> | null;
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      typeof parsed.plannedMinutes !== 'number' ||
+      !Number.isFinite(parsed.plannedMinutes) ||
+      parsed.plannedMinutes <= 0 ||
+      typeof parsed.startedAt !== 'number' ||
+      typeof parsed.accumulatedPausedMs !== 'number' ||
+      !['idle', 'running', 'paused', 'break'].includes(String(parsed.status))
+    ) {
+      return null;
+    }
+    return parsed as ActiveTimerState;
   } catch {
     return null;
   }

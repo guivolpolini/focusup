@@ -1,3 +1,4 @@
+import { formatDateToLocalYYYYMMDD } from './srsEngine';
 import type {
   AgendaCategory,
   AgendaReminderOffset,
@@ -429,7 +430,7 @@ export interface CalendarDayCell {
  */
 export function getMonthCalendarGrid(year: number, month: number): CalendarDayCell[] {
   const cells: CalendarDayCell[] = [];
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = formatDateToLocalYYYYMMDD(new Date());
 
   // Primeiro dia do mês (0 = domingo, 1 = segunda, etc.)
   const firstDayOfMonth = new Date(year, month - 1, 1);
@@ -560,7 +561,7 @@ export function formatAgendaDateFullBR(dateStr: string): string {
  */
 export function getUpcomingEvents(
   occurrences: AgendaOccurrence[],
-  referenceDateStr: string = new Date().toISOString().slice(0, 10),
+  referenceDateStr: string = formatDateToLocalYYYYMMDD(new Date()),
   limit: number = 5
 ): AgendaOccurrence[] {
   return occurrences

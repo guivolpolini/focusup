@@ -1,7 +1,7 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
-import { VitePWA } from 'vite-plugin-pwa'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -17,12 +17,11 @@ export default defineConfig({
         'apple-touch-icon.png',
         'pwa-192x192.png',
         'pwa-512x512.png',
-        'icons.svg',
       ],
       manifest: {
         name: 'FocusUp',
         short_name: 'FocusUp',
-        description: 'Aplicativo pessoal de produtividade, estudos, SRS e foco',
+        description: 'Aplicativo pessoal de produtividade, estudos, hábitos, treinos e finanças',
         theme_color: '#4f46e5',
         background_color: '#f8fafc',
         display: 'standalone',
@@ -58,4 +57,34 @@ export default defineConfig({
       },
     }),
   ],
-})
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: 'vendor-react',
+              test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/,
+              priority: 20,
+            },
+            {
+              name: 'vendor-dexie',
+              test: /node_modules[\\/](dexie|dexie-react-hooks)[\\/]/,
+              priority: 15,
+            },
+            {
+              name: 'vendor-zod',
+              test: /node_modules[\\/]zod[\\/]/,
+              priority: 15,
+            },
+            {
+              name: 'vendor-icons',
+              test: /node_modules[\\/]lucide-react[\\/]/,
+              priority: 10,
+            },
+          ],
+        },
+      },
+    },
+  },
+});

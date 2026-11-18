@@ -1,3 +1,4 @@
+import { formatDateToLocalYYYYMMDD, formatLocalMonthKey } from './srsEngine';
 import type {
   FinanceTransaction,
   FinanceCard,
@@ -304,7 +305,7 @@ export function calculateCardSummary(
   recurringOccurrences?: RecurringOccurrence[],
   totalCardsCount?: number
 ): CardInvoiceSummary {
-  const ref = referenceDate || new Date().toISOString().slice(0, 10);
+  const ref = referenceDate || formatDateToLocalYYYYMMDD(new Date());
   const currentInvoiceMonth = calculateInvoiceMonth(ref, card.closingDay);
   const nextInvoiceMonth = getAdjacentMonthKey(currentInvoiceMonth, 1);
 
@@ -749,7 +750,7 @@ export function parseCSVTransactions(
     }
 
     if (!normalizedDate || normalizedDate.length !== 10) {
-      normalizedDate = new Date().toISOString().slice(0, 10);
+      normalizedDate = formatDateToLocalYYYYMMDD(new Date());
     }
 
     const amountInCents = parseBRLToCents(rawAmount);
@@ -856,7 +857,7 @@ export function getRecurringOccurrencesForMonth(
   monthKey: string,
   referenceTodayStr?: string
 ): MonthlyRecurringSummary {
-  const todayStr = referenceTodayStr || new Date().toISOString().slice(0, 10);
+  const todayStr = referenceTodayStr || formatDateToLocalYYYYMMDD(new Date());
   const [tYearStr, tMonthStr] = monthKey.split('-');
   const targetYear = parseInt(tYearStr, 10);
   const targetMonth = parseInt(tMonthStr, 10); // 1..12
@@ -882,7 +883,7 @@ export function getRecurringOccurrencesForMonth(
       const paidTx = paidByOccurrenceKey.get(occurrenceKey);
 
       // Não projeta em meses anteriores à criação da recorrência (a não ser que tenha sido paga naquele mês)
-      const createdMonthKey = rec.createdAt ? new Date(rec.createdAt).toISOString().slice(0, 7) : monthKey;
+      const createdMonthKey = rec.createdAt ? formatLocalMonthKey(new Date(rec.createdAt)) : monthKey;
       if (monthKey < createdMonthKey && !paidTx) {
         continue;
       }
@@ -1315,7 +1316,7 @@ export function getUpcomingCommitments(
   monthKey: string,
   referenceTodayStr?: string
 ): UpcomingCommitmentItem[] {
-  const todayStr = referenceTodayStr || new Date().toISOString().slice(0, 10);
+  const todayStr = referenceTodayStr || formatDateToLocalYYYYMMDD(new Date());
   const items: UpcomingCommitmentItem[] = [];
 
   for (const occ of recurringSummary.occurrences) {

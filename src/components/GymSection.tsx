@@ -10,6 +10,7 @@ import type {
 } from '../types';
 import { isValidCompletedWorkout } from '../lib/gymEngine';
 import { formatDateToLocalYYYYMMDD } from '../lib/srsEngine';
+import { useFeedback } from './FeedbackProvider';
 
 interface GymSectionProps {
   exercises: GymExercise[];
@@ -30,6 +31,7 @@ const SUGGESTED_WORKOUTS = [
 ];
 
 export function GymSection({ workouts }: GymSectionProps) {
+  const { toast } = useFeedback();
   const todayStr = formatDateToLocalYYYYMMDD(new Date());
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [workoutName, setWorkoutName] = useState('');
@@ -72,7 +74,7 @@ export function GymSection({ workouts }: GymSectionProps) {
   const handleAddDay = async () => {
     if (!selectedDate) return;
     if (isSelectedDateAlreadyRecorded) {
-      alert('Esta data já está registrada!');
+      toast.info('Esta data já está registrada.');
       return;
     }
 

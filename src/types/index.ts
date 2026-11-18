@@ -114,11 +114,13 @@ export interface DayAvailability {
 
 export interface StudyPreferences {
   id: string; // "user_preferences"
+  userName?: string;
   dailyGoalMinutes: number;
   weeklyAvailability: DayAvailability[];
   primaryArea: string;
   theme: 'light' | 'dark';
   breakIntervalMinutes: number;
+  deletedFinanceCategories?: string[];
   updatedAt: number;
 }
 

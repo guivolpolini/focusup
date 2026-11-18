@@ -486,10 +486,15 @@ export function getDeletedCategoryIds(): Set<string> {
  */
 export function markCategoryAsDeleted(id: string): void {
   try {
-    if (typeof window === 'undefined') return;
     const set = getDeletedCategoryIds();
     set.add(id);
-    localStorage.setItem(DELETED_CATEGORIES_KEY, JSON.stringify(Array.from(set)));
+    const list = Array.from(set);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(DELETED_CATEGORIES_KEY, JSON.stringify(list));
+    }
+    void db.preferences
+      .update('user_preferences', { deletedFinanceCategories: list, updatedAt: Date.now() })
+      .catch((err) => console.warn('Falha ao sincronizar categorias excluídas no Dexie:', err));
   } catch (err) {
     console.error('Erro ao marcar categoria como excluída:', err);
   }
@@ -503,6 +508,9 @@ export function clearDeletedCategoryIds(): void {
     if (typeof window !== 'undefined') {
       localStorage.removeItem(DELETED_CATEGORIES_KEY);
     }
+    void db.preferences
+      .update('user_preferences', { deletedFinanceCategories: [], updatedAt: Date.now() })
+      .catch((err) => console.warn('Falha ao limpar categorias excluídas no Dexie:', err));
   } catch (err) {
     console.error('Erro ao limpar categorias excluídas:', err);
   }
@@ -519,6 +527,12 @@ export async function ensureDefaultFinanceCategories(forceRestore = false): Prom
       clearDeletedCategoryIds();
     }
     const deletedIds = forceRestore ? new Set<string>() : getDeletedCategoryIds();
+    if (!forceRestore) {
+      const prefs = await db.preferences.get('user_preferences');
+      for (const id of prefs?.deletedFinanceCategories ?? []) {
+        deletedIds.add(id);
+      }
+    }
     const existing = await db.financeCategories.toArray();
     const existingIds = new Set(existing.map((c) => c.id));
     const existingNames = new Set(existing.map((c) => c.name.toLowerCase().trim()));

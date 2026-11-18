@@ -1,3 +1,4 @@
+import { formatDateToLocalYYYYMMDD } from './srsEngine';
 import type { Subject, StudySession } from '../types';
 
 export interface StudySuggestion {
@@ -68,7 +69,7 @@ export function formatStudyDateBR(dateStr: string): string {
  */
 export function formatStudyRelativeDate(dateStr: string, referenceTodayStr?: string): string {
   if (!dateStr || dateStr.length < 10) return dateStr || '';
-  const todayStr = referenceTodayStr || new Date().toISOString().slice(0, 10);
+  const todayStr = referenceTodayStr || formatDateToLocalYYYYMMDD(new Date());
   const [y, m, d] = dateStr.slice(0, 10).split('-');
   const br = `${d}/${m}/${y}`;
 
@@ -79,7 +80,7 @@ export function formatStudyRelativeDate(dateStr: string, referenceTodayStr?: str
   // Verifica se foi ontem
   const todayDate = new Date(todayStr + 'T12:00:00');
   todayDate.setDate(todayDate.getDate() - 1);
-  const yesterdayStr = todayDate.toISOString().slice(0, 10);
+  const yesterdayStr = formatDateToLocalYYYYMMDD(todayDate);
   if (dateStr === yesterdayStr) {
     return `Ontem (${d}/${m})`;
   }

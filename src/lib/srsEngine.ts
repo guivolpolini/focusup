@@ -14,6 +14,20 @@ export function formatDateToLocalYYYYMMDD(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+export function getTodayLocalYYYYMMDD(now: Date = new Date()): string {
+  return formatDateToLocalYYYYMMDD(now);
+}
+
+export function formatTimestampToLocalYYYYMMDD(timestamp: number): string {
+  return formatDateToLocalYYYYMMDD(new Date(timestamp));
+}
+
+export function formatLocalMonthKey(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
 export function addDaysToDate(baseDate: Date, days: number): Date {
   const result = new Date(baseDate);
   result.setDate(result.getDate() + days);

@@ -1,14 +1,10 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { lazy, Suspense, startTransition, useCallback, useEffect, useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import confetti from 'canvas-confetti';
-import { ConsistencyCalendar } from './components/ConsistencyCalendar';
+import { triggerConfetti } from './lib/confetti';
 import { groupActivityByDay, calculateStreaks } from './lib/consistencyEngine';
 import {
   Play,
-  Pause,
-  CheckCircle2,
   Layers,
-  Trash2,
   Download,
   Upload,
   AlertTriangle,
@@ -22,26 +18,24 @@ import {
   FileText,
   Bell,
   BellRing,
-  RotateCcw,
   Dumbbell,
   CheckSquare,
   Wallet,
   CalendarDays,
   ArrowLeft,
   Grid,
+  User,
 } from 'lucide-react';
 
 import { HabitsCard } from './components/HabitsCard';
-import { HabitsSection } from './components/HabitsSection';
 import { FinanceCard } from './components/FinanceCard';
-import { FinanceSection } from './components/FinanceSection';
-import { StudySection } from './components/StudySection';
 import { AgendaCard } from './components/AgendaCard';
-import { AgendaSection } from './components/AgendaSection';
-import { WeeklyReportSection } from './components/WeeklyReportSection';
-import { getHabitLogForDate, getHabitStatusForDate } from './lib/habitEngine';
 import { GymCard } from './components/GymCard';
-import { GymSection } from './components/GymSection';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { useFeedback } from './components/FeedbackProvider';
+import { AgendaReminderRunner } from './components/AgendaReminderRunner';
+import { ActiveTimerBanner, TimerCompletionWatcher } from './components/FocusTimerSection';
+import { getHabitLogForDate, getHabitStatusForDate } from './lib/habitEngine';
 import { db, seedInitialData, ensureDefaultFinanceCategories } from './lib/db';
 import {
   type ActiveTimerState,
@@ -51,12 +45,6 @@ import {
   clearTimerState,
 } from './lib/timerEngine';
 import { formatDateToLocalYYYYMMDD } from './lib/srsEngine';
-import {
-  exportAllData,
-  validateBackupString,
-  restoreByReplacement,
-  restoreByMerge,
-} from './lib/backupEngine';
 import { calculateGamification } from './lib/gamification';
 import { generateWeeklyReviewAnalysis } from './lib/weeklyReviewEngine';
 import {
@@ -69,30 +57,138 @@ import {
   getNotificationPermissionStatus,
 } from './lib/notificationEngine';
 import type {
+  Flashcard,
+  GymExercise,
+  GymMeasurement,
+  GymRoutine,
+  GymWorkout,
+  Habit,
+  HabitLog,
   SessionMode,
   StudySession,
+  Subject,
+  Task,
   WeeklyReview,
 } from './types';
 
+// Code splitting das abas secundárias pesadas (reduz drasticamente o bundle inicial)
+const FinanceSection = lazy(() =>
+  import('./components/FinanceSection').then((m) => ({ default: m.FinanceSection }))
+);
+const AgendaSection = lazy(() =>
+  import('./components/AgendaSection').then((m) => ({ default: m.AgendaSection }))
+);
+const StudySection = lazy(() =>
+  import('./components/StudySection').then((m) => ({ default: m.StudySection }))
+);
+const GymSection = lazy(() =>
+  import('./components/GymSection').then((m) => ({ default: m.GymSection }))
+);
+const HabitsSection = lazy(() =>
+  import('./components/HabitsSection').then((m) => ({ default: m.HabitsSection }))
+);
+const WeeklyReportSection = lazy(() =>
+  import('./components/WeeklyReportSection').then((m) => ({ default: m.WeeklyReportSection }))
+);
+const ConsistencyCalendar = lazy(() =>
+  import('./components/ConsistencyCalendar').then((m) => ({ default: m.ConsistencyCalendar }))
+);
+const FocusTimerSection = lazy(() =>
+  import('./components/FocusTimerSection').then((m) => ({ default: m.FocusTimerSection }))
+);
+
+type AppTab =
+  | 'home'
+  | 'focus'
+  | 'studies'
+  | 'agenda'
+  | 'gym'
+  | 'habits'
+  | 'finance'
+  | 'weekly_report'
+  | 'progress'
+  | 'settings'
+  | 'more';
+
+const VALID_TABS = new Set<AppTab>([
+  'home',
+  'focus',
+  'studies',
+  'agenda',
+  'gym',
+  'habits',
+  'finance',
+  'weekly_report',
+  'progress',
+  'settings',
+  'more',
+]);
+
+function readTabFromHash(): AppTab {
+  if (typeof window === 'undefined') return 'home';
+  const raw = window.location.hash.replace(/^#\/?/, '') as AppTab;
+  return VALID_TABS.has(raw) ? raw : 'home';
+}
+
+const EMPTY_SUBJECTS: Subject[] = [];
+const EMPTY_TASKS: Task[] = [];
+const EMPTY_FLASHCARDS: Flashcard[] = [];
+const EMPTY_SESSIONS: StudySession[] = [];
+const EMPTY_GYM_EXERCISES: GymExercise[] = [];
+const EMPTY_GYM_ROUTINES: GymRoutine[] = [];
+const EMPTY_GYM_WORKOUTS: GymWorkout[] = [];
+const EMPTY_GYM_MEASUREMENTS: GymMeasurement[] = [];
+const EMPTY_HABITS: Habit[] = [];
+const EMPTY_HABIT_LOGS: HabitLog[] = [];
+
+function TabLoadingFallback() {
+  return (
+    <div className="space-y-4 animate-pulse" role="status" aria-label="Carregando módulo">
+      <div className="h-24 rounded-3xl bg-white border border-slate-200/80" />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="h-48 rounded-3xl bg-white border border-slate-200/80" />
+        <div className="h-48 rounded-3xl bg-white border border-slate-200/80" />
+      </div>
+    </div>
+  );
+}
+
 export function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'focus' | 'studies' | 'agenda' | 'gym' | 'habits' | 'finance' | 'weekly_report' | 'progress' | 'settings' | 'more'>('home');
-  const [now, setNow] = useState(Date.now());
+  const { toast, confirm } = useFeedback();
+  const [activeTab, setActiveTabState] = useState<AppTab>(() => readTabFromHash());
   const [currentReview, setCurrentReview] = useState<WeeklyReview | null>(null);
+
+  const setActiveTab = useCallback((tab: AppTab) => {
+    startTransition(() => {
+      setActiveTabState(tab);
+    });
+    if (typeof window !== 'undefined') {
+      const targetHash = `#${tab}`;
+      if (window.location.hash !== targetHash) {
+        window.history.pushState(null, '', targetHash);
+      }
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+    }
+  }, []);
+
+  // Sincronização com botão Voltar do celular e navegador
+  useEffect(() => {
+    const syncFromHash = () => {
+      startTransition(() => {
+        setActiveTabState(readTabFromHash());
+      });
+    };
+    window.addEventListener('hashchange', syncFromHash);
+    window.addEventListener('popstate', syncFromHash);
+    return () => {
+      window.removeEventListener('hashchange', syncFromHash);
+      window.removeEventListener('popstate', syncFromHash);
+    };
+  }, []);
 
   // Determina se a aba ativa é um submódulo da central de ferramentas
   const isMoreSubTab = useMemo(() => {
     return ['studies', 'agenda', 'gym', 'habits', 'focus', 'weekly_report', 'settings'].includes(activeTab);
-  }, [activeTab]);
-
-  // Ref e auto-scroll para a barra de navegação móvel espaçosa
-  const mobileNavRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (mobileNavRef.current) {
-      const activeEl = mobileNavRef.current.querySelector<HTMLElement>('[data-active="true"]');
-      if (activeEl) {
-        activeEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-      }
-    }
   }, [activeTab]);
 
   // Estado do Cronômetro
@@ -108,49 +204,45 @@ export function App() {
     };
   });
 
-  // Consultas Reativas ao Dexie
-  const subjects = useLiveQuery(() => db.subjects.filter((s) => !s.archived).toArray()) || [];
+  // Consultas Reativas ao Dexie (referências estáveis para preservar memoization)
+  const subjects = useLiveQuery(() => db.subjects.filter((s) => !s.archived).toArray()) ?? EMPTY_SUBJECTS;
   const uniqueSubjects = useMemo(() => deduplicateSubjectsList(subjects), [subjects]);
-  const tasks = useLiveQuery(() => db.tasks.toArray()) || [];
-  const flashcards = useLiveQuery(() => db.flashcards.filter((f) => !f.archived).toArray()) || [];
-  const sessions = useLiveQuery(() => db.studySessions.toArray()) || [];
+  const tasks = useLiveQuery(() => db.tasks.toArray()) ?? EMPTY_TASKS;
+  const flashcards = useLiveQuery(() => db.flashcards.filter((f) => !f.archived).toArray()) ?? EMPTY_FLASHCARDS;
+  const sessions = useLiveQuery(() => db.studySessions.toArray()) ?? EMPTY_SESSIONS;
   const preferences = useLiveQuery(() => db.preferences.get('user_preferences'));
 
   // Consultas Reativas da Seção Academia
-  const gymExercises = useLiveQuery(() => db.gymExercises.toArray()) || [];
-  const gymRoutines = useLiveQuery(() => db.gymRoutines.toArray()) || [];
-  const gymWorkouts = useLiveQuery(() => db.gymWorkouts.toArray()) || [];
-  const gymMeasurements = useLiveQuery(() => db.gymMeasurements.toArray()) || [];
+  const gymExercises = useLiveQuery(() => db.gymExercises.toArray()) ?? EMPTY_GYM_EXERCISES;
+  const gymRoutines = useLiveQuery(() => db.gymRoutines.toArray()) ?? EMPTY_GYM_ROUTINES;
+  const gymWorkouts = useLiveQuery(() => db.gymWorkouts.toArray()) ?? EMPTY_GYM_WORKOUTS;
+  const gymMeasurements = useLiveQuery(() => db.gymMeasurements.toArray()) ?? EMPTY_GYM_MEASUREMENTS;
   const gymPreferences = useLiveQuery(() => db.gymPreferences.get('gym_preferences'));
 
   // Consultas Reativas do Rastreador de Hábitos
-  const habits = useLiveQuery(() => db.habits.toArray()) || [];
-  const habitLogs = useLiveQuery(() => db.habitLogs.toArray()) || [];
+  const habits = useLiveQuery(() => db.habits.toArray()) ?? EMPTY_HABITS;
+  const habitLogs = useLiveQuery(() => db.habitLogs.toArray()) ?? EMPTY_HABIT_LOGS;
 
   // Data local no formato YYYY-MM-DD
   const todayStr = formatDateToLocalYYYYMMDD(new Date());
 
   // Estado de Notificações Mobile
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>('default');
-  const [notifiedSessionStart, setNotifiedSessionStart] = useState<number | null>(null);
 
-  // Inicialização das sementes e saneamento de duplicatas
+  // Inicialização das sementes e saneamento de duplicatas (com proteção contra falhas de storage)
   useEffect(() => {
     (async () => {
-      await seedInitialData();
-      await ensureDefaultFinanceCategories();
-      await cleanAndDeduplicateDatabaseSubjects();
-      setNotifPermission(getNotificationPermissionStatus());
+      try {
+        await seedInitialData();
+        await ensureDefaultFinanceCategories();
+        await cleanAndDeduplicateDatabaseSubjects();
+        setNotifPermission(getNotificationPermissionStatus());
+      } catch (err) {
+        console.error('Erro na inicialização do banco local:', err);
+        toast.error('Falha ao inicializar armazenamento local. Verifique permissões do navegador.');
+      }
     })();
-  }, []);
-
-  // Loop de relógio para UI do Timer
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
+  }, [toast]);
 
   // Salvar estado do timer quando alterado
   useEffect(() => {
@@ -160,24 +252,6 @@ export function App() {
       clearTimerState();
     }
   }, [timerState]);
-
-  // Cálculos do timer
-  const timerProgress = calculateTimerProgress(timerState, now);
-
-  // Disparo de notificação e vibração no término do timer
-  useEffect(() => {
-    if (
-      timerState.status === 'running' &&
-      timerProgress.isFinished &&
-      notifiedSessionStart !== timerState.startedAt
-    ) {
-      setNotifiedSessionStart(timerState.startedAt);
-      sendLocalNotification('Tempo Esgotado! ⚡ FocusUp', {
-        body: `Sua sessão de ${timerState.plannedMinutes} min foi concluída! Registre seu progresso.`,
-        tag: 'focusup-timer-done',
-      });
-    }
-  }, [timerState.status, timerProgress.isFinished, timerState.startedAt, timerState.plannedMinutes, notifiedSessionStart]);
 
   // Manipuladores do Cronômetro
   const prepareTimer = (mode: SessionMode = 'pomodoro', customMinutes?: number, subjectId?: string, taskId?: string) => {
@@ -256,20 +330,16 @@ export function App() {
   };
 
   const triggerVictoryEffect = () => {
-    try {
-      confetti({
-        particleCount: 80,
-        spread: 70,
-        origin: { y: 0.6 },
-        colors: ['#4f46e5', '#10b981', '#f59e0b', '#06b6d4'],
-      });
-    } catch {
-      // Ignorar caso bloqueado
-    }
+    void triggerConfetti({
+      particleCount: 80,
+      spread: 70,
+      origin: { y: 0.6 },
+      colors: ['#4f46e5', '#10b981', '#f59e0b', '#06b6d4'],
+    });
   };
 
   const finishSession = async () => {
-    const actualSeconds = timerProgress.actualStudiedSeconds;
+    const actualSeconds = calculateTimerProgress(timerState, Date.now()).actualStudiedSeconds;
     if (actualSeconds >= 60) {
       const newSession: StudySession = {
         id: `session-${Date.now()}`,
@@ -296,11 +366,15 @@ export function App() {
         }
       }
 
+      const minutesDone = Math.floor(actualSeconds / 60);
       triggerVictoryEffect();
-      sendLocalNotification('Missão Concluída! 🚀 FocusUp', {
-        body: `Sessão de ${Math.floor(actualSeconds / 60)} min finalizada! Seu XP foi atualizado no ranking.`,
+      toast.success(`Sessão de ${minutesDone} min registrada!`);
+      void sendLocalNotification('Missão Concluída! FocusUp', {
+        body: `Sessão de ${minutesDone} min finalizada! Seu XP foi atualizado no ranking.`,
         tag: 'focusup-session-complete',
       });
+    } else {
+      toast.info('Sessões com menos de 1 minuto não são salvas no histórico.');
     }
 
     setTimerState({
@@ -314,8 +388,14 @@ export function App() {
     clearTimerState();
   };
 
-  const cancelSession = () => {
-    if (confirm('Deseja cancelar esta sessão? O progresso não salvo será descartado.')) {
+  const cancelSession = async () => {
+    const ok = await confirm({
+      title: 'Cancelar sessão',
+      message: 'Deseja cancelar esta sessão? O progresso não salvo será descartado.',
+      confirmLabel: 'Descartar',
+      destructive: true,
+    });
+    if (ok) {
       setTimerState({
         status: 'idle',
         mode: 'pomodoro',
@@ -325,6 +405,7 @@ export function App() {
         isBreak: false,
       });
       clearTimerState();
+      toast.info('Sessão cancelada.');
     }
   };
 
@@ -393,8 +474,14 @@ export function App() {
     });
   }, [gymWorkouts, todayStr]);
 
+  const displayName = preferences?.userName?.trim() || 'Guilherme';
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row pb-28 md:pb-0 selection:bg-indigo-100 selection:text-indigo-900">
+      {/* Monitores globais isolados (não causam re-render no App) */}
+      <TimerCompletionWatcher timerState={timerState} />
+      <AgendaReminderRunner />
+
       {/* Sidebar Desktop — Visual Claro & Gamificado */}
       <aside className="hidden md:flex flex-col w-72 bg-white border-r border-slate-200/90 p-5 shadow-xs">
         <div className="flex items-center gap-3 mb-6 px-1">
@@ -609,7 +696,7 @@ export function App() {
                   </span>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mt-1.5">
-                  {greeting}, Guilherme 👋
+                  {greeting}, {displayName} 👋
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-500 mt-1">
                   {dailyProgressPercent >= 100
@@ -689,7 +776,7 @@ export function App() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Estudo Hoje</span>
-                <div className="mt-2 flex items-baseline gap-1.5">
+                <div className="mt-2 flex items-baseline gap-1.5 tabular-nums">
                   <span className="text-2xl sm:text-3xl font-black text-slate-900">{studiedMinutesToday}m</span>
                   <span className="text-xs text-slate-400 font-bold">/ {dailyGoal}m</span>
                 </div>
@@ -703,7 +790,7 @@ export function App() {
 
               <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sequência</span>
-                <div className="mt-2 flex items-center gap-2">
+                <div className="mt-2 flex items-center gap-2 tabular-nums">
                   <Flame className="w-6 h-6 text-amber-500" />
                   <span className="text-2xl sm:text-3xl font-black text-slate-900">{streak} dias</span>
                 </div>
@@ -712,7 +799,7 @@ export function App() {
 
               <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Hábitos do Dia</span>
-                <div className="mt-2 flex items-baseline gap-1.5">
+                <div className="mt-2 flex items-baseline gap-1.5 tabular-nums">
                   <span className="text-2xl sm:text-3xl font-black text-slate-900">
                     {completedHabitsTodayCount}
                   </span>
@@ -740,29 +827,11 @@ export function App() {
               </div>
             </div>
 
-            {/* Banner de Sessão Ativa */}
-            {timerState.status !== 'idle' && (
-              <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 text-white p-5 rounded-3xl shadow-md flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-                    <span className="text-[11px] uppercase tracking-widest font-extrabold text-indigo-200">
-                      Sessão de Foco Ativa ({timerState.mode})
-                    </span>
-                  </div>
-                  <div className="text-4xl font-mono font-black tracking-tight mt-1">
-                    {Math.floor(timerProgress.remainingSeconds / 60)}:
-                    {String(timerProgress.remainingSeconds % 60).padStart(2, '0')}
-                  </div>
-                </div>
-                <button
-                  onClick={() => setActiveTab('focus')}
-                  className="bg-white text-indigo-700 font-black px-5 py-2.5 rounded-xl shadow-xs text-sm hover:bg-indigo-50 transition active:scale-95"
-                >
-                  Abrir Foco
-                </button>
-              </div>
-            )}
+            {/* Banner de Sessão Ativa (isolado com tick próprio) */}
+            <ActiveTimerBanner
+              timerState={timerState}
+              onOpenFocus={() => setActiveTab('focus')}
+            />
 
             {/* Grid dos 4 Cartões Centrais: Finanças, Agenda, Hábitos e Academia */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -800,7 +869,7 @@ export function App() {
                       createdAt: log ? log.createdAt : nowTime,
                       updatedAt: nowTime,
                     });
-                    confetti({ particleCount: 35, spread: 55, origin: { y: 0.85 } });
+                    void triggerConfetti({ particleCount: 35, spread: 55, origin: { y: 0.85 } });
                   }
                 }}
                 onOpenNewHabitModal={() => setActiveTab('habits')}
@@ -853,211 +922,103 @@ export function App() {
 
         {/* TAB: FOCO (POMODORO & DEEP WORK) */}
         {activeTab === 'focus' && (
-          <div className="max-w-xl mx-auto space-y-6 text-center">
-            <header>
-              <h2 className="text-2xl font-black text-slate-900">Timer de Foco</h2>
-              <p className="text-xs text-slate-500 mt-1">
-                Conclua a sessão para receber +XP e avançar seu nível de maestria.
-              </p>
-            </header>
-
-            <div className="inline-flex p-1 bg-slate-200/80 rounded-2xl gap-1">
-              <button
-                onClick={() => prepareTimer('pomodoro', 25)}
-                disabled={timerState.status === 'running'}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-                  timerState.mode === 'pomodoro' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                }`}
-              >
-                Pomodoro (25m)
-              </button>
-              <button
-                onClick={() => prepareTimer('deep_work', 50)}
-                disabled={timerState.status === 'running'}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-                  timerState.mode === 'deep_work' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                }`}
-              >
-                Deep Work (50m)
-              </button>
-              <button
-                onClick={() => prepareTimer('five_min', 5)}
-                disabled={timerState.status === 'running'}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-                  timerState.mode === 'five_min' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                }`}
-              >
-                5 Minutos
-              </button>
-            </div>
-
-            {/* Mostrador Principal Gamificado Claro */}
-            <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
-              <div className="flex justify-center">
-                <div className="relative w-68 h-68 rounded-full border-8 border-slate-100 flex flex-col items-center justify-center bg-slate-50/50">
-                  <div className="text-5xl font-mono font-black tracking-tight text-slate-900">
-                    {Math.floor(timerProgress.remainingSeconds / 60)}:
-                    {String(timerProgress.remainingSeconds % 60).padStart(2, '0')}
-                  </div>
-                  <div className="text-xs font-bold text-indigo-600 mt-2 uppercase tracking-widest flex items-center gap-1.5">
-                    {timerState.status === 'running' ? (
-                      <>
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                        Em Foco
-                      </>
-                    ) : timerState.status === 'paused' ? (
-                      'Pausado'
-                    ) : (
-                      'Pronto para o Estudo'
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Botões de Ação */}
-              <div className="flex flex-wrap items-center justify-center gap-3">
-                {timerState.status === 'idle' ? (
-                  <>
-                    <button
-                      onClick={() => startTimer(timerState.mode, timerState.plannedMinutes)}
-                      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3.5 rounded-2xl font-black shadow-sm transition active:scale-95"
-                    >
-                      <Play className="w-5 h-5 fill-white" />
-                      Iniciar
-                    </button>
-                    <button
-                      onClick={restartTimer}
-                      className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-3.5 rounded-2xl font-bold transition active:scale-95"
-                      title="Recomeçar do início"
-                    >
-                      <RotateCcw className="w-4 h-4 text-indigo-600" />
-                      Recomeçar
-                    </button>
-                  </>
-                ) : timerState.status === 'running' ? (
-                  <>
-                    <button
-                      onClick={pauseTimer}
-                      className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-5 py-3.5 rounded-2xl font-bold transition active:scale-95"
-                      title="Pausar"
-                    >
-                      <Pause className="w-5 h-5 fill-current" />
-                      Pausar
-                    </button>
-                    <button
-                      onClick={restartTimer}
-                      className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-5 py-3.5 rounded-2xl font-bold transition active:scale-95"
-                      title="Recomeçar do início"
-                    >
-                      <RotateCcw className="w-4 h-4 text-indigo-600" />
-                      Recomeçar
-                    </button>
-                    <button
-                      onClick={finishSession}
-                      className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3.5 rounded-2xl font-black shadow-sm transition active:scale-95"
-                    >
-                      <CheckCircle2 className="w-5 h-5" />
-                      Concluir (+XP)
-                    </button>
-                    <button
-                      onClick={cancelSession}
-                      className="p-3.5 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-600 transition active:scale-95"
-                      title="Cancelar"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      onClick={resumeTimer}
-                      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-2xl font-black shadow-sm transition active:scale-95"
-                    >
-                      <Play className="w-5 h-5 fill-white" />
-                      Iniciar
-                    </button>
-                    <button
-                      onClick={restartTimer}
-                      className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-5 py-3.5 rounded-2xl font-bold transition active:scale-95"
-                      title="Recomeçar do início"
-                    >
-                      <RotateCcw className="w-4 h-4 text-indigo-600" />
-                      Recomeçar
-                    </button>
-                    <button
-                      onClick={finishSession}
-                      className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3.5 rounded-2xl font-black shadow-sm transition active:scale-95"
-                    >
-                      <CheckCircle2 className="w-5 h-5" />
-                      Concluir (+XP)
-                    </button>
-                    <button
-                      onClick={cancelSession}
-                      className="p-3.5 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-600 transition active:scale-95"
-                      title="Cancelar"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
+          <ErrorBoundary scopeLabel="Foco">
+            <Suspense fallback={<TabLoadingFallback />}>
+              <FocusTimerSection
+                timerState={timerState}
+                subjects={uniqueSubjects}
+                onPrepareTimer={(mode, customMinutes, subjectId) =>
+                  prepareTimer(mode, customMinutes, subjectId)
+                }
+                onStartTimer={(mode, customMinutes) => startTimer(mode, customMinutes)}
+                onPauseTimer={pauseTimer}
+                onResumeTimer={resumeTimer}
+                onRestartTimer={restartTimer}
+                onFinishSession={finishSession}
+                onCancelSession={cancelSession}
+                onSelectSubject={(subjectId) =>
+                  setTimerState((prev) => ({ ...prev, subjectId }))
+                }
+              />
+            </Suspense>
+          </ErrorBoundary>
         )}
-
-
 
         {/* TAB: ESTUDOS (MATÉRIAS, TEMPO SEMANAL, REGISTRO E HISTÓRICO) */}
         {activeTab === 'studies' && (
-          <StudySection
-            onStartFocus={(subId) => {
-              prepareTimer('pomodoro', 25, subId);
-              setActiveTab('focus');
-            }}
-          />
+          <ErrorBoundary scopeLabel="Estudos">
+            <Suspense fallback={<TabLoadingFallback />}>
+              <StudySection
+                onStartFocus={(subId) => {
+                  prepareTimer('pomodoro', 25, subId);
+                  setActiveTab('focus');
+                }}
+              />
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* TAB: AGENDA DE COMPROMISSOS */}
         {activeTab === 'agenda' && (
-          <AgendaSection />
+          <ErrorBoundary scopeLabel="Agenda">
+            <Suspense fallback={<TabLoadingFallback />}>
+              <AgendaSection />
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* TAB: ACADEMIA & HIPERTROFIA */}
         {activeTab === 'gym' && (
-          <GymSection
-            exercises={gymExercises}
-            routines={gymRoutines}
-            workouts={gymWorkouts}
-            measurements={gymMeasurements}
-            preferences={gymPreferences}
-          />
+          <ErrorBoundary scopeLabel="Academia">
+            <Suspense fallback={<TabLoadingFallback />}>
+              <GymSection
+                exercises={gymExercises}
+                routines={gymRoutines}
+                workouts={gymWorkouts}
+                measurements={gymMeasurements}
+                preferences={gymPreferences}
+              />
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* TAB: RASTREADOR DE HÁBITOS */}
         {activeTab === 'habits' && (
-          <HabitsSection
-            habits={habits}
-            habitLogs={habitLogs}
-          />
+          <ErrorBoundary scopeLabel="Hábitos">
+            <Suspense fallback={<TabLoadingFallback />}>
+              <HabitsSection
+                habits={habits}
+                habitLogs={habitLogs}
+              />
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* TAB: MÓDULO FINANCEIRO */}
         {activeTab === 'finance' && (
-          <FinanceSection />
+          <ErrorBoundary scopeLabel="Finanças">
+            <Suspense fallback={<TabLoadingFallback />}>
+              <FinanceSection />
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* TAB: RELATÓRIO SEMANAL */}
         {activeTab === 'weekly_report' && (
-          <WeeklyReportSection
-            sessions={sessions}
-            tasks={tasks}
-            subjects={subjects}
-            gymWorkouts={gymWorkouts}
-            habits={habits}
-            habitLogs={habitLogs}
-            studyPreferences={preferences}
-            gymPreferences={gymPreferences}
-          />
+          <ErrorBoundary scopeLabel="Relatório Semanal">
+            <Suspense fallback={<TabLoadingFallback />}>
+              <WeeklyReportSection
+                sessions={sessions}
+                tasks={tasks}
+                subjects={subjects}
+                gymWorkouts={gymWorkouts}
+                habits={habits}
+                habitLogs={habitLogs}
+                studyPreferences={preferences}
+                gymPreferences={gymPreferences}
+              />
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* TAB: CONQUISTAS & MÉTRICAS */}
@@ -1091,12 +1052,16 @@ export function App() {
             </div>
 
             {/* Calendário de Consistência Anual */}
-            <ConsistencyCalendar
-              sessions={sessions}
-              tasks={tasks}
-              dailyGoalMinutes={dailyGoal}
-              onStartFocusToday={() => prepareTimer('pomodoro')}
-            />
+            <ErrorBoundary scopeLabel="Consistência">
+              <Suspense fallback={<TabLoadingFallback />}>
+                <ConsistencyCalendar
+                  sessions={sessions}
+                  tasks={tasks}
+                  dailyGoalMinutes={dailyGoal}
+                  onStartFocusToday={() => prepareTimer('pomodoro')}
+                />
+              </Suspense>
+            </ErrorBoundary>
 
             {/* Painel de Análise e Revisão Semanal Automática */}
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
@@ -1160,8 +1125,8 @@ export function App() {
                       </p>
                       <div className="flex gap-2 pt-2">
                         <button
-                          onClick={() => alert('Plano aceito com sucesso para a próxima semana!')}
-                          className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg transition"
+                          onClick={() => toast.success('Plano aceito com sucesso para a próxima semana!')}
+                          className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg transition cursor-pointer"
                         >
                           Aceitar Proposta
                         </button>
@@ -1188,33 +1153,71 @@ export function App() {
               <p className="text-xs text-slate-500 mt-1">Ajuste suas metas de estudo e gerencie seus backups.</p>
             </header>
 
-            {/* Ajuste de Metas de Estudo */}
+            {/* Perfil & Metas de Estudo */}
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
               <div className="flex items-center gap-2">
+                <User className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-extrabold text-slate-900 text-sm">Perfil</h3>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                <div>
+                  <label htmlFor="pref-user-name" className="text-xs font-bold text-slate-800 block">
+                    Seu Nome na Saudação
+                  </label>
+                  <div className="text-[10px] text-slate-400">Exibido no topo da tela Hoje</div>
+                </div>
+                <input
+                  id="pref-user-name"
+                  type="text"
+                  key={preferences?.userName ?? 'default-name'}
+                  defaultValue={displayName}
+                  maxLength={40}
+                  onBlur={async (e) => {
+                    const trimmed = e.target.value.trim();
+                    if (trimmed && trimmed !== displayName) {
+                      await db.preferences.update('user_preferences', {
+                        userName: trimmed,
+                        updatedAt: Date.now(),
+                      });
+                      toast.success('Nome atualizado!');
+                    }
+                  }}
+                  className="sm:w-44 text-xs p-2 rounded-xl bg-white border border-slate-200 font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/30"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
                 <Settings2 className="w-5 h-5 text-indigo-600" />
                 <h3 className="font-extrabold text-slate-900 text-sm">Metas de Estudo</h3>
               </div>
 
               <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
                 <div>
-                  <div className="text-xs font-bold text-slate-800">Meta Diária de Foco</div>
+                  <label htmlFor="pref-daily-goal" className="text-xs font-bold text-slate-800 block">
+                    Meta Diária de Foco
+                  </label>
                   <div className="text-[10px] text-slate-400">Minutos de estudo esperados por dia</div>
                 </div>
                 <div className="flex items-center gap-2">
                   <input
+                    id="pref-daily-goal"
                     type="number"
+                    min={5}
+                    max={720}
+                    key={preferences?.dailyGoalMinutes ?? 120}
                     defaultValue={preferences?.dailyGoalMinutes || 120}
                     onBlur={async (e) => {
                       const val = Number(e.target.value);
-                      if (val > 0) {
+                      if (val > 0 && val !== dailyGoal) {
                         await db.preferences.update('user_preferences', {
                           dailyGoalMinutes: val,
                           updatedAt: Date.now(),
                         });
-                        alert('Meta diária atualizada!');
+                        toast.success('Meta diária atualizada!');
                       }
                     }}
-                    className="w-20 text-xs p-2 rounded-xl bg-white border border-slate-200 text-center font-bold font-mono focus:outline-hidden"
+                    className="w-20 text-xs p-2 rounded-xl bg-white border border-slate-200 text-center font-bold font-mono tabular-nums focus:outline-hidden focus:ring-2 focus:ring-indigo-500/30"
                   />
                   <span className="text-xs font-bold text-slate-500">minutos</span>
                 </div>
@@ -1263,12 +1266,12 @@ export function App() {
                       await sendLocalNotification('FocusUp Notificações Ativas! ⚡', {
                         body: 'Você receberá alertas no término de suas sessões de estudo com vibração física.',
                       });
-                      alert('Notificações ativadas com sucesso!');
+                      toast.success('Notificações ativadas com sucesso!');
                     } else {
-                      alert('Permissão não concedida. Verifique as configurações de notificações do seu navegador.');
+                      toast.error('Permissão não concedida. Verifique as configurações do seu navegador.');
                     }
                   }}
-                  className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-2xl transition shadow-xs text-xs active:scale-98"
+                  className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-2xl transition shadow-xs text-xs active:scale-98 cursor-pointer"
                 >
                   <BellRing className="w-4 h-4" />
                   Ativar Notificações no Celular
@@ -1279,9 +1282,9 @@ export function App() {
                     await sendLocalNotification('Teste de Notificação FocusUp! 🔔', {
                       body: 'Alerta funcionando! Seu celular vibrou e o aviso foi entregue com sucesso.',
                     });
-                    alert('Notificação de teste disparada!');
+                    toast.success('Notificação de teste disparada!');
                   }}
-                  className="w-full flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-2xl transition text-xs active:scale-98"
+                  className="w-full flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-2xl transition text-xs active:scale-98 cursor-pointer"
                 >
                   <BellRing className="w-4 h-4 text-indigo-600" />
                   Testar Alerta & Vibração Agora
@@ -1319,15 +1322,23 @@ export function App() {
               <div className="space-y-3 pt-2">
                 <button
                   onClick={async () => {
-                    const json = await exportAllData();
-                    const blob = new Blob([json], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `focusup-backup-${formatDateToLocalYYYYMMDD(new Date())}.json`;
-                    a.click();
+                    try {
+                      const { exportAllData } = await import('./lib/backupEngine');
+                      const json = await exportAllData();
+                      const blob = new Blob([json], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `focusup-backup-${formatDateToLocalYYYYMMDD(new Date())}.json`;
+                      a.click();
+                      setTimeout(() => URL.revokeObjectURL(url), 1000);
+                      toast.success('Backup JSON exportado!');
+                    } catch (err) {
+                      console.error('Erro ao exportar backup:', err);
+                      toast.error('Falha ao exportar backup.');
+                    }
                   }}
-                  className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-2xl transition shadow-sm text-sm active:scale-98"
+                  className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-2xl transition shadow-sm text-sm active:scale-98 cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
                   Exportar Backup Completo (JSON)
@@ -1343,16 +1354,23 @@ export function App() {
                       className="hidden"
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
+                        e.target.value = '';
                         if (!file) return;
-                        const text = await file.text();
-                        const validation = validateBackupString(text);
-                        if (!validation.success) {
-                          alert(`Erro de validação: ${validation.error}`);
-                          return;
+                        try {
+                          const { validateBackupString, restoreByMerge } = await import('./lib/backupEngine');
+                          const text = await file.text();
+                          const validation = validateBackupString(text);
+                          if (!validation.success) {
+                            toast.error(`Erro de validação: ${validation.error}`);
+                            return;
+                          }
+                          const res = await restoreByMerge(validation.payload);
+                          triggerVictoryEffect();
+                          toast.success(`Mesclagem concluída! ${res.added} novos registros, ${res.updated} atualizados.`);
+                        } catch (err) {
+                          console.error('Erro ao mesclar backup:', err);
+                          toast.error('Falha ao mesclar o arquivo de backup.');
                         }
-                        const res = await restoreByMerge(validation.payload);
-                        triggerVictoryEffect();
-                        alert(`Mesclagem concluída! ${res.added} novos registros adicionados, ${res.updated} atualizados.`);
                       }}
                     />
                   </label>
@@ -1366,21 +1384,31 @@ export function App() {
                       className="hidden"
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
+                        e.target.value = '';
                         if (!file) return;
-                        const text = await file.text();
-                        const validation = validateBackupString(text);
-                        if (!validation.success) {
-                          alert(`Erro de validação: ${validation.error}`);
-                          return;
-                        }
-                        if (
-                          confirm(
-                            'ATENÇÃO: Deseja realmente substituir todos os dados atuais por este backup? Esta ação não pode ser desfeita.'
-                          )
-                        ) {
-                          await restoreByReplacement(validation.payload);
-                          triggerVictoryEffect();
-                          alert('Backup restaurado com sucesso!');
+                        try {
+                          const { validateBackupString, restoreByReplacement } = await import('./lib/backupEngine');
+                          const text = await file.text();
+                          const validation = validateBackupString(text);
+                          if (!validation.success) {
+                            toast.error(`Erro de validação: ${validation.error}`);
+                            return;
+                          }
+                          const ok = await confirm({
+                            title: 'Substituir todos os dados',
+                            message:
+                              'ATENÇÃO: Deseja realmente substituir todos os dados atuais por este backup? Esta ação não pode ser desfeita.',
+                            confirmLabel: 'Substituir tudo',
+                            destructive: true,
+                          });
+                          if (ok) {
+                            await restoreByReplacement(validation.payload);
+                            triggerVictoryEffect();
+                            toast.success('Backup restaurado com sucesso!');
+                          }
+                        } catch (err) {
+                          console.error('Erro ao restaurar backup:', err);
+                          toast.error('Falha ao restaurar o arquivo de backup.');
                         }
                       }}
                     />
@@ -1580,8 +1608,11 @@ export function App() {
         )}
       </main>
 
-      {/* Navegação Inferior Mobile — 4 Botões Grandes, Ergonômicos & Sem Rolagem */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200/90 z-50 py-2 px-3 shadow-lg">
+      {/* Navegação Inferior Mobile — 4 Botões Grandes, Ergonômicos & Safe Area iOS */}
+      <nav
+        aria-label="Navegação principal"
+        className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200/90 z-50 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] px-3 shadow-lg"
+      >
         <div className="grid grid-cols-4 gap-1.5 max-w-md mx-auto">
           {[
             { id: 'home' as const, label: 'Hoje', icon: Layers, activeColor: 'text-indigo-600 bg-indigo-50/90 border-indigo-200 shadow-xs' },
@@ -1594,8 +1625,10 @@ export function App() {
             return (
               <button
                 key={tab.id}
+                type="button"
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex flex-col items-center justify-center py-2 px-1 rounded-2xl border transition-all active:scale-95 cursor-pointer ${
+                className={`flex flex-col items-center justify-center min-h-[44px] py-2 px-1 rounded-2xl border transition-all active:scale-95 cursor-pointer ${
                   isActive
                     ? `${tab.activeColor} font-black`
                     : 'border-transparent text-slate-400 hover:text-slate-600 font-bold hover:bg-slate-50'
